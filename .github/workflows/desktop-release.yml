@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - "Goylord-Desktop/**"
+  workflow_dispatch:
 
 permissions:
   contents: read
