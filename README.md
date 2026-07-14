@@ -1,12 +1,10 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/xv752/Goylord/refs/heads/main/Goylord-Server/public/assets/goylord.png" alt="Goylord" width="280" />
-</p>
-
 # Goylord
+
+Fork (unofficial) of vxaboveground/Overlord.
 
 Remote access and fleet management platform. TypeScript server on Bun, Go agent, Tauri desktop app. Operators manage targets through a web panel; agents connect over encrypted WebSockets.
 
-**Version:** 0.0.0
+**Version:** 0.0.2
 
 ---
 
@@ -40,7 +38,7 @@ docker compose up -d
 brew install --cask docker
 git clone https://github.com/xv752/Goylord.git
 cd Goylord
-docker compose -f docker-compose.windows.yml up -d
+docker compose up -d
 ```
 
 ### Update
@@ -87,7 +85,7 @@ The Dockerfile is multi-stage: Stage 1 builds assets + HVNC DLLs, Stage 2 is a s
 
 ## No Docker
 
-Prerequisites: Bun, Go 1.21+
+Prerequisites: Bun, Go 1.26+
 
 ```bash
 # Development (server + agent)
