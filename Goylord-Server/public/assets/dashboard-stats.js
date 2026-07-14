@@ -618,7 +618,13 @@ function updateSummary(snapshot) {
   setText("dash-http-errors", `${formatNumber(snapshot?.http?.lastMinuteErrors)} errors`);
 
   const mem = Number(snapshot?.server?.systemMemory?.usedPercent) || 0;
-  setText("dash-memory-status", `${Math.round(mem)}%`);
+  const memUsed = Number(snapshot?.server?.systemMemory?.used) || 0;
+  const memTotal = Number(snapshot?.server?.systemMemory?.total) || 0;
+  if (memTotal > 0) {
+    setText("dash-memory-status", `${Math.round(mem)}% (${formatBytes(memUsed)} / ${formatBytes(memTotal)})`);
+  } else {
+    setText("dash-memory-status", `${Math.round(mem)}%`);
+  }
   setDotTone("dash-memory-dot", mem >= 90 ? "bad" : mem >= 75 ? "warn" : "live");
 
   const cpuCores = Number(snapshot?.server?.cpu?.cores) || 1;
@@ -627,8 +633,8 @@ function updateSummary(snapshot) {
   setText("dash-cpu-status", `${cpuPercent}% (${cpuCores} cores)`);
   setDotTone("dash-cpu-dot", cpuPercent >= 90 ? "bad" : cpuPercent >= 70 ? "warn" : "live");
 
-  const uptimeSec = Number(snapshot?.server?.uptime) || 0;
-  setText("dash-uptime-status", formatUptime(uptimeSec));
+  const uptimeMs = Number(snapshot?.server?.uptime) || 0;
+  setText("dash-uptime-status", formatUptime(uptimeMs / 1000));
 
   const avgPing = snapshot?.ping?.avg;
   if (Number.isFinite(avgPing)) {
