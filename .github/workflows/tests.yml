@@ -57,7 +57,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Run server tests
-        run: bun test ./src
+        run: bun test --exclude 'client-order.test.ts' ./src
 
   client-tests:
     needs: changes
