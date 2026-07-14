@@ -222,7 +222,7 @@ const DEFAULT_CONFIG: Config = {
       dashboardBackgroundUrl: "",
       navName: "Goylord",
       title: "Welcome back",
-      subtitle: "Sign in to your control plane",
+      subtitle: "Sign in to your control panel",
       iconClass: "fa-solid fa-crown",
       logoUrl: "",
       logoAlt: "Goylord logo",
