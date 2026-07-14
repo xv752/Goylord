@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Goylord Console</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/vendor/jetbrains-mono/400.css" />
+    <link rel="stylesheet" href="/vendor/jetbrains-mono/600.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/vendor/xterm/xterm.css" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <link rel="stylesheet" href="/assets/console.css?v=3" />
+  </head>
+  <body class="console-body">
+    <header id="top-nav"></header>
+    <main class="console-main">
+      <div class="console-card">
+        <div class="console-header">
+          <div class="console-meta">
+            <div class="console-target">
+              <div class="muted text-sm">Client</div>
+              <div class="console-target-id" id="client-label">-</div>
+            </div>
+            <div class="console-target">
+              <div class="muted text-sm">Host</div>
+              <div class="console-target-id" id="host-label">-</div>
+            </div>
+            <div class="console-target">
+              <div class="muted text-sm">User</div>
+              <div class="console-target-id" id="user-label">-</div>
+            </div>
+            <div class="console-target">
+              <div class="muted text-sm">OS</div>
+              <div class="console-target-id" id="os-label">-</div>
+            </div>
+          </div>
+          <div class="console-toolbar">
+            <span id="status-pill" class="pill pill-offline"><i class="fa-solid fa-circle"></i> Offline</span>
+            <button type="button" id="reconnect-btn" class="button ghost" title="Reconnect">
+              <i class="fa-solid fa-rotate-right"></i><span>Reconnect</span>
+            </button>
+            <button type="button" id="interrupt-btn" class="button ghost" title="Send Ctrl+C">
+              <i class="fa-solid fa-hand"></i><span>Ctrl+C</span>
+            </button>
+            <button type="button" id="clear-btn" class="button ghost" title="Clear screen">
+              <i class="fa-solid fa-eraser"></i><span>Clear</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="terminal" class="console-terminal" role="log" aria-live="polite" aria-label="Console output"></div>
+      </div>
+    </main>
+    <script defer src="/vendor/msgpackr/msgpackr.js"></script>
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/console.js"></script>
+  </body>
+</html>

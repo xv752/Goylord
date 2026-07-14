@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Goylord Graph</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+    <main class="graph-shell">
+      <section class="graph-toolbar" aria-label="Client graph controls">
+        <div class="graph-title">
+          <i class="fa-solid fa-diagram-project"></i>
+          <div>
+            <h1>Client Graph</h1>
+            <p id="graph-summary">Loading...</p>
+          </div>
+        </div>
+        <div class="graph-controls">
+          <label class="graph-field">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input id="graph-search" type="search" autocomplete="off" placeholder="Search clients" />
+          </label>
+          <select id="graph-status" class="graph-select" aria-label="Status filter">
+            <option value="all">All status</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+          </select>
+          <select id="graph-layout" class="graph-select" aria-label="Graph layout">
+            <option value="cose">Force</option>
+            <option value="breadthfirst">Tree</option>
+            <option value="circle">Circle</option>
+            <option value="grid">Grid</option>
+          </select>
+          <button id="graph-refresh" class="button ghost" type="button" title="Refresh graph" aria-label="Refresh graph">
+            <i class="fa-solid fa-rotate-right"></i>
+          </button>
+          <button id="graph-fit" class="button ghost" type="button" title="Fit graph" aria-label="Fit graph">
+            <i class="fa-solid fa-expand"></i>
+          </button>
+        </div>
+      </section>
+
+      <section class="graph-workspace">
+        <div id="client-graph" class="graph-canvas" role="application" aria-label="Client relationship graph"></div>
+        <aside class="graph-inspector" aria-label="Selected graph item">
+          <div class="graph-inspector-kicker">Selection</div>
+          <h2 id="graph-detail-title">Nothing selected</h2>
+          <div id="graph-detail-meta" class="graph-detail-meta"></div>
+          <div id="graph-detail-actions" class="graph-detail-actions"></div>
+        </aside>
+      </section>
+    </main>
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/client-graph.js"></script>
+  </body>
+</html>

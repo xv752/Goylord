@@ -1,0 +1,564 @@
+import { runWithoutPageTracking } from "./turbo-navigation.js";
+
+// ── Context menu data ─────────────────────────────────────────────────────────
+const MENU_GROUPS = [
+  {
+    id: "remote-access",
+    label: "Remote Access",
+    icon: "fa-solid fa-plug",
+    color: "text-indigo-400",
+    items: [
+      { label: "Console",        icon: "fa-solid fa-terminal",        icolor: "text-emerald-400", open: "console" },
+      { label: "Remote Desktop", icon: "fa-solid fa-desktop",         icolor: "text-purple-400",  open: "remotedesktop" },
+      { label: "Backstage",      icon: "fa-solid fa-ghost",           icolor: "text-violet-400",  open: "Backstage" },
+      { label: "Virtual",         icon: "fa-solid fa-eye-slash",      icolor: "text-fuchsia-400", open: "Virtual", windowsOnly: true },
+      { label: "Voice",          icon: "fa-solid fa-headset",         icolor: "text-teal-400",    open: "voice" },
+    ],
+  },
+  {
+    id: "monitoring",
+    label: "Monitoring",
+    icon: "fa-solid fa-eye",
+    color: "text-cyan-400",
+    items: [
+      { label: "Webcam",          icon: "fa-solid fa-video",      icolor: "text-emerald-400", open: "webcam" },
+      { label: "Keylogger",       icon: "fa-solid fa-keyboard",   icolor: "text-yellow-400",  open: "keylogger" },
+      { label: "Process Manager", icon: "fa-solid fa-list-check", icolor: "text-orange-400",  open: "processes" },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    icon: "fa-solid fa-server",
+    color: "text-blue-400",
+    items: [
+      { label: "File Browser", icon: "fa-solid fa-folder-tree",   icolor: "text-blue-400", open: "files" },
+      { label: "Execution",    icon: "fa-solid fa-rocket",         icolor: "text-cyan-400", open: "silent-exec", id: "menu-silent-exec", hidden: true },
+      { label: "WinRE Persist", icon: "fa-solid fa-shield-halved", icolor: "text-amber-400", open: "winre", windowsOnly: true },
+    ],
+  },
+  {
+    id: "agent",
+    label: "Agent",
+    icon: "fa-solid fa-robot",
+    color: "text-slate-400",
+    items: [
+      { label: "Ping",                  icon: "fa-solid fa-satellite-dish",    icolor: "text-slate-300", action: "ping" },
+      { label: "Reconnect",             icon: "fa-solid fa-rotate",            icolor: "text-slate-300", action: "reconnect" },
+      { label: "Set Nickname",          icon: "fa-solid fa-signature",         icolor: "text-slate-300", action: "set-nickname" },
+      { label: "Set Custom Tag",        icon: "fa-solid fa-tag",               icolor: "text-slate-300", action: "set-custom-tag" },
+      { label: "Set Group",              icon: "fa-solid fa-layer-group",       icolor: "text-blue-300",  action: "set-group" },
+      { label: "Mute Notifications",    icon: "fa-solid fa-bell-slash",        icolor: "text-amber-300", action: "toggle-mute" },
+      { label: "Secure Logs",           icon: "fa-solid fa-file-shield",       icolor: "text-sky-300",   action: "secure-logs" },
+      { divider: true },
+      { label: "Elevate",               icon: "fa-solid fa-arrow-up-right-dots", icolor: "text-green-400", action: "elevate" },
+      { divider: true },
+      { label: "Disconnect",            icon: "fa-solid fa-plug-circle-xmark", icolor: "text-red-400",   action: "disconnect" },
+      { label: "Uninstall",             icon: "fa-solid fa-trash",             icolor: "text-red-300",   action: "uninstall" },
+      { label: "Remove From Dashboard", icon: "fa-solid fa-user-xmark",        icolor: "text-rose-300",  action: "remove-dashboard" },
+    ],
+  },
+];
+
+// ── Styles ────────────────────────────────────────────────────────────────────
+const menuStyle = document.createElement("style");
+menuStyle.textContent = `
+#command-menu {
+  position: fixed;
+  display: none;
+  flex-direction: row;
+  align-items: flex-start;
+  z-index: 9999;
+  filter: drop-shadow(0 8px 40px rgba(0,0,0,0.7));
+}
+#ctx-main {
+  background: #141c2b;
+  border: 1px solid rgba(148,163,184,0.14);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 196px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  position: relative;
+}
+#ctx-sub {
+  background: #141c2b;
+  border: 1px solid rgba(148,163,184,0.14);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 188px;
+  position: absolute;
+  left: calc(100% + 5px);
+  top: 0;
+  display: none;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 1;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+#ctx-main, #ctx-sub {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148,163,184,0.35) transparent;
+}
+#ctx-main::-webkit-scrollbar,
+#ctx-sub::-webkit-scrollbar {
+  width: 8px;
+}
+#ctx-main::-webkit-scrollbar-thumb,
+#ctx-sub::-webkit-scrollbar-thumb {
+  background: rgba(148,163,184,0.28);
+  border-radius: 999px;
+}
+#ctx-main::-webkit-scrollbar-thumb:hover,
+#ctx-sub::-webkit-scrollbar-thumb:hover {
+  background: rgba(148,163,184,0.45);
+}
+.ctx-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.1s, color 0.1s;
+}
+.ctx-row:hover:not([disabled]):not([aria-disabled="true"]),
+.ctx-row.ctx-active:not([disabled]):not([aria-disabled="true"]) {
+  background: rgba(71,85,105,0.55);
+  color: #f1f5f9;
+}
+.ctx-row[disabled],
+.ctx-row[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.ctx-row.ctx-active .ctx-chevron {
+  opacity: 1;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.1s, color 0.1s;
+}
+.ctx-item:hover:not([disabled]):not([aria-disabled="true"]) {
+  background: rgba(71,85,105,0.55);
+  color: #f1f5f9;
+}
+.ctx-item[disabled],
+.ctx-item[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.ctx-divider {
+  height: 1px;
+  background: rgba(148,163,184,0.13);
+  margin: 3px 4px;
+}
+.ctx-sub-panel {
+  display: none;
+  flex-direction: column;
+  gap: 1px;
+}
+.ctx-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.ctx-plugin-item {
+  min-width: 220px;
+}
+.ctx-plugin-label {
+  flex: 1;
+}
+.ctx-plugin-trust {
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.ctx-plugin-badge {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,0.25);
+  background: rgba(15,23,42,0.6);
+  color: #94a3b8;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.ctx-plugin-badge.is-loaded {
+  border-color: rgba(16,185,129,0.45);
+  background: rgba(6,78,59,0.35);
+  color: #6ee7b7;
+}
+.ctx-chevron {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.4;
+  transition: opacity 0.1s;
+  flex-shrink: 0;
+}
+/* Allow classList.add/remove("Virtual") to work on items inside the menu */
+#command-menu .hidden { display: none !important; }
+/* Mobile: stack submenu below the main column, scroll the whole menu */
+@media (max-width: 600px) {
+  #command-menu {
+    flex-direction: column;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    /* drop-shadow on a scroll container can clip painted content; keep shadow but
+       move it onto the inner panels instead so scrolling stays smooth */
+    filter: none;
+  }
+  #ctx-main, #ctx-sub {
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
+    max-height: none;
+    overflow: visible;
+  }
+  #ctx-sub { position: static; margin-top: 0; min-width: 0; width: 100%; border-radius: 0 0 8px 8px; border-top: 1px solid rgba(148,163,184,0.08); left: auto; right: auto; }
+  #ctx-main { border-radius: 8px 8px 0 0; }
+}
+`;
+
+// ── Build DOM ─────────────────────────────────────────────────────────────────
+function buildItemHTML(item) {
+  if (item.divider) return `<div class="ctx-divider"></div>`;
+  const dataAttr   = item.open   ? `data-open="${item.open}"`   : `data-action="${item.action}"`;
+  const idAttr     = item.id     ? `id="${item.id}"`             : "";
+  const hiddenClass = item.hidden ? " hidden"                    : "";
+  return `<button class="ctx-item${hiddenClass}" ${dataAttr} ${idAttr}><i class="${item.icon} ctx-icon ${item.icolor}"></i><span>${item.label}</span></button>`;
+}
+
+const mainRowsHTML =
+  MENU_GROUPS.map(g =>
+    `<button class="ctx-row" data-group-toggle="${g.id}"><i class="${g.icon} ctx-icon ${g.color}"></i><span style="flex:1">${g.label}</span><i class="fa-solid fa-chevron-right ctx-chevron"></i></button>`
+  ).join("") +
+  `<div class="ctx-divider"></div>` +
+  `<button class="ctx-row hidden" id="script-section" data-group-toggle="scripts"><i class="fa-solid fa-scroll ctx-icon text-cyan-400"></i><span style="flex:1">Run Script</span><i class="fa-solid fa-chevron-right ctx-chevron"></i></button>` +
+  `<button class="ctx-row hidden" id="plugin-section" data-group-toggle="plugins"><i class="fa-solid fa-puzzle-piece ctx-icon text-fuchsia-400"></i><span style="flex:1">Plugins</span><i class="fa-solid fa-chevron-right ctx-chevron"></i></button>`;
+
+const subPanelsHTML =
+  MENU_GROUPS.map(g =>
+    `<div class="ctx-sub-panel" data-for="${g.id}">${g.items.map(buildItemHTML).join("")}</div>`
+  ).join("") +
+  `<div class="ctx-sub-panel" data-for="scripts"><div id="script-menu" style="display:flex;flex-direction:column;gap:1px"></div></div>` +
+  `<div class="ctx-sub-panel" data-for="plugins"><div id="plugin-menu" style="display:flex;flex-direction:column;gap:1px"></div></div>`;
+
+const menu = document.createElement("div");
+menu.id = "command-menu";
+menu.setAttribute("data-turbo-permanent", "");
+menu.setAttribute("role", "menu");
+menu.setAttribute("aria-hidden", "true");
+menu.innerHTML = `<div id="ctx-main">${mainRowsHTML}</div><div id="ctx-sub">${subPanelsHTML}</div>`;
+menu.prepend(menuStyle);
+document.body.appendChild(menu);
+
+const ctxMain = menu.querySelector("#ctx-main");
+const ctxSub  = menu.querySelector("#ctx-sub");
+
+// ── Submenu interaction ───────────────────────────────────────────────────────
+let activeGroupId = null;
+let _hideTimer = null;
+
+function showSubmenu(groupId, rowEl) {
+  if (activeGroupId === groupId) return;
+  activeGroupId = groupId;
+
+  ctxMain.querySelectorAll(".ctx-row").forEach(r => r.classList.remove("ctx-active"));
+  rowEl.classList.add("ctx-active");
+
+  ctxSub.querySelectorAll(".ctx-sub-panel").forEach(p => { p.style.display = "none"; });
+  const panel = ctxSub.querySelector(`[data-for="${groupId}"]`);
+  if (!panel) { ctxSub.style.display = "none"; return; }
+  panel.style.display = "flex";
+  ctxSub.style.display = "flex";
+
+  if (isMobileMenu()) {
+    requestAnimationFrame(refitMobileMenu);
+    return;
+  }
+
+  // Align submenu vertically with the hovered row, then clamp to viewport
+  requestAnimationFrame(() => {
+    const rowRect  = rowEl.getBoundingClientRect();
+    const mainRect = ctxMain.getBoundingClientRect();
+    let offsetY = rowRect.top - mainRect.top;
+
+    ctxSub.style.maxHeight = "calc(100vh - 16px)";
+    const subH   = ctxSub.offsetHeight;
+    const menuTop = parseFloat(menu.style.top) || 0;
+    if (menuTop + offsetY + subH > window.innerHeight - 8) {
+      offsetY = Math.max(0, window.innerHeight - 8 - subH - menuTop);
+    }
+    ctxSub.style.top = offsetY + "px";
+    const subTop = menuTop + offsetY;
+    ctxSub.style.maxHeight = Math.max(120, window.innerHeight - subTop - 8) + "px";
+    ctxSub.scrollTop = 0;
+
+    // Flip to left if submenu overflows right edge
+    const subW = ctxSub.offsetWidth;
+    if (mainRect.right + 5 + subW > window.innerWidth - 8) {
+      ctxSub.style.left  = "auto";
+      ctxSub.style.right = "calc(100% + 5px)";
+    } else {
+      ctxSub.style.left  = "calc(100% + 5px)";
+      ctxSub.style.right = "auto";
+    }
+  });
+}
+
+function hideSubmenu() {
+  clearTimeout(_hideTimer);
+  _hideTimer = null;
+  activeGroupId = null;
+  ctxSub.style.display = "none";
+  ctxSub.querySelectorAll(".ctx-sub-panel").forEach(p => { p.style.display = "none"; });
+  ctxMain.querySelectorAll(".ctx-row").forEach(r => r.classList.remove("ctx-active"));
+}
+
+function isMobileMenu() {
+  return window.matchMedia("(max-width: 600px)").matches;
+}
+
+function refitMobileMenu() {
+  if (!isMobileMenu()) return;
+  const sub = menu.querySelector("#ctx-sub");
+  if (sub && menu.scrollHeight > menu.clientHeight) {
+    sub.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+}
+
+ctxMain.querySelectorAll(".ctx-row").forEach(rowEl => {
+  runWithoutPageTracking(() => rowEl.addEventListener("mouseenter", () => {
+    if (isMobileMenu()) return;
+    if (rowEl.disabled || rowEl.getAttribute("aria-disabled") === "true") return;
+    const groupId = rowEl.dataset.groupToggle;
+    if (groupId) showSubmenu(groupId, rowEl);
+  }));
+});
+
+// Debounced hide — prevents the 5px gap between panels from closing the submenu
+function scheduleHide() { if (!isMobileMenu()) _hideTimer = setTimeout(hideSubmenu, 150); }
+function cancelHide()   { clearTimeout(_hideTimer); _hideTimer = null; }
+
+runWithoutPageTracking(() => {
+  ctxMain.addEventListener("mouseleave", scheduleHide);
+  ctxMain.addEventListener("mouseenter", cancelHide);
+  ctxSub.addEventListener("mouseenter", cancelHide);
+  ctxSub.addEventListener("mouseleave", scheduleHide);
+});
+
+// Touch / mobile: tap to toggle group
+ctxMain.querySelectorAll(".ctx-row").forEach(rowEl => {
+  runWithoutPageTracking(() => rowEl.addEventListener("click", (e) => {
+    const groupId = rowEl.dataset.groupToggle;
+    if (!groupId) return;
+    if (rowEl.disabled || rowEl.getAttribute("aria-disabled") === "true") return;
+    e.stopPropagation();
+    if (activeGroupId === groupId) { hideSubmenu(); } else { showSubmenu(groupId, rowEl); }
+  }));
+});
+
+const modal = document.createElement("div");
+modal.className =
+  "modal fixed inset-0 z-40 hidden items-center justify-center bg-black/80 backdrop-blur";
+modal.innerHTML = `<div class="max-w-5xl max-h-[90vh] p-4"><img class="max-h-[85vh] max-w-full rounded-xl shadow-2xl border border-slate-800 object-contain" id="modal-img" src="" alt="preview" /></div>`;
+document.body.appendChild(modal);
+const modalImg = modal.querySelector("#modal-img");
+
+export function getMenu() { return menu; }
+
+export function dismissFilterPanels() {
+  document.querySelectorAll(".dashboard-menu[open]").forEach(d => d.removeAttribute("open"));
+}
+
+function _makeDialogHTML(title, bodyHTML, footerHTML) {
+  return `<div class="ov-dialog-backdrop" style="position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);">
+    <div style="background:#1e293b;border:1px solid rgba(148,163,184,0.2);border-radius:12px;padding:24px;min-width:320px;max-width:440px;color:#e2e8f0;font-family:Inter,sans-serif;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+      <div style="font-size:15px;font-weight:600;margin-bottom:12px;">${title}</div>
+      <div style="font-size:14px;line-height:1.5;color:#cbd5e1;margin-bottom:20px;">${bodyHTML}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">${footerHTML}</div>
+    </div>
+  </div>`;
+}
+
+export function goylordAlert(message) {
+  return new Promise(resolve => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = _makeDialogHTML("Alert", `<div>${String(message).replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")}</div>`,
+      `<button id="ov-alert-ok" style="padding:6px 18px;border-radius:6px;background:#6366f1;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;">OK</button>`);
+    const backdrop = wrapper.firstElementChild;
+    document.body.appendChild(backdrop);
+    const btn = backdrop.querySelector("#ov-alert-ok");
+    const close = () => { backdrop.remove(); resolve(); };
+    btn.addEventListener("click", close);
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(); });
+    btn.focus();
+  });
+}
+
+export function goylordConfirm(message) {
+  return new Promise(resolve => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = _makeDialogHTML("Confirm", `<div>${String(message).replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")}</div>`,
+      `<button id="ov-confirm-cancel" style="padding:6px 18px;border-radius:6px;background:transparent;color:#94a3b8;border:1px solid rgba(148,163,184,0.25);font-size:13px;font-weight:500;cursor:pointer;">Cancel</button>` +
+      `<button id="ov-confirm-ok" style="padding:6px 18px;border-radius:6px;background:#6366f1;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;">OK</button>`);
+    const backdrop = wrapper.firstElementChild;
+    document.body.appendChild(backdrop);
+    const okBtn = backdrop.querySelector("#ov-confirm-ok");
+    const cancelBtn = backdrop.querySelector("#ov-confirm-cancel");
+    const close = (val) => { backdrop.remove(); resolve(val); };
+    okBtn.addEventListener("click", () => close(true));
+    cancelBtn.addEventListener("click", () => close(false));
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(false); });
+    okBtn.focus();
+  });
+}
+
+export function goylordPrompt(message, defaultValue = "") {
+  return new Promise(resolve => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = _makeDialogHTML("Input", `<div style="margin-bottom:8px;">${String(message).replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\n/g,"<br>")}</div>` +
+      `<input id="ov-prompt-input" type="text" style="width:100%;padding:8px 12px;border-radius:6px;background:#0f172a;color:#e2e8f0;border:1px solid rgba(148,163,184,0.25);font-size:14px;outline:none;box-sizing:border-box;" />`,
+      `<button id="ov-prompt-cancel" style="padding:6px 18px;border-radius:6px;background:transparent;color:#94a3b8;border:1px solid rgba(148,163,184,0.25);font-size:13px;font-weight:500;cursor:pointer;">Cancel</button>` +
+      `<button id="ov-prompt-ok" style="padding:6px 18px;border-radius:6px;background:#6366f1;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer;">OK</button>`);
+    const backdrop = wrapper.firstElementChild;
+    document.body.appendChild(backdrop);
+    const input = backdrop.querySelector("#ov-prompt-input");
+    const okBtn = backdrop.querySelector("#ov-prompt-ok");
+    const cancelBtn = backdrop.querySelector("#ov-prompt-cancel");
+    input.value = defaultValue;
+    const close = (val) => { backdrop.remove(); resolve(val); };
+    okBtn.addEventListener("click", () => close(input.value || null));
+    cancelBtn.addEventListener("click", () => close(null));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") close(input.value || null); if (e.key === "Escape") close(null); });
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop) close(null); });
+    input.focus();
+    input.select();
+  });
+}
+
+export function openMenu(clientId, x, y, setContext, options = {}) {
+  if (setContext) setContext(clientId);
+
+  // Toggle remove-dashboard visibility
+  const removeBtn = menu.querySelector('[data-action="remove-dashboard"]');
+  if (removeBtn) {
+    removeBtn.style.display = options.isOnline === true ? "none" : "";
+  }
+
+  const muteBtn = menu.querySelector('[data-action="toggle-mute"]');
+  if (muteBtn) {
+    const icon = muteBtn.querySelector("i");
+    const label = muteBtn.querySelector("span");
+    if (options.notificationsMuted) {
+      if (label) label.textContent = "Unmute Notifications";
+      if (icon) icon.className = "fa-solid fa-bell ctx-icon text-emerald-300";
+    } else {
+      if (label) label.textContent = "Mute Notifications";
+      if (icon) icon.className = "fa-solid fa-bell-slash ctx-icon text-amber-300";
+    }
+  }
+
+  // Reset submenu state
+  hideSubmenu();
+
+  // Show menu off-screen first so we can measure, then reposition
+  menu.style.left = "-9999px";
+  menu.style.top  = "-9999px";
+  menu.style.display = "flex";
+  menu.setAttribute("aria-hidden", "false");
+  ctxMain.scrollTop = 0;
+  ctxSub.scrollTop = 0;
+
+  requestAnimationFrame(() => {
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 8;
+
+    if (isMobileMenu()) {
+      menu.style.left = Math.max(margin, Math.floor((vw - mw) / 2)) + "px";
+      menu.style.top  = margin + "px";
+      menu.scrollTop = 0;
+      return;
+    }
+
+    menu.style.left = Math.max(margin, Math.min(x, vw - mw - margin)) + "px";
+    menu.style.top  = Math.max(margin, Math.min(y, vh - mh - margin)) + "px";
+  });
+}
+
+export function closeMenu(clearContext) {
+  menu.style.display = "none";
+  menu.setAttribute("aria-hidden", "true");
+  hideSubmenu();
+  if (clearContext) clearContext();
+}
+
+export function openModal(src) {
+  if (!src) return;
+
+  modalImg.src = "";
+
+  setTimeout(() => {
+    modalImg.src = src;
+    modal.classList.remove("Virtual");
+    modal.classList.add("flex");
+  }, 10);
+}
+
+export function closeModal() {
+  modal.classList.remove("flex");
+  modal.classList.add("Virtual");
+}
+
+export function wireModalClose() {
+  modal.addEventListener("click", closeModal);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeModal();
+      closeMenu();
+    }
+  });
+}
+
+export { menu, modal };

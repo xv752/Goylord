@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>File Browser - Goylord</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/vendor/highlight.js/atom-one-dark.min.css" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <script src="/vendor/highlight.js/highlight.bundle.js"></script>
+    <script defer src="/vendor/msgpackr/msgpackr.js"></script>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <style>
+      .file-item:hover {
+        background-color: rgba(30, 41, 59, 0.62);
+      }
+      .file-item {
+        position: relative;
+      }
+      .file-item.selected {
+        background-color: rgba(14, 165, 233, 0.12);
+        box-shadow: inset 3px 0 0 rgb(56 189 248);
+      }
+      .file-checkbox {
+        appearance: none;
+        -webkit-appearance: none;
+        position: absolute;
+        left: 0.75rem;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        border: 1px solid rgb(71 85 105);
+        border-radius: 0.25rem;
+        background-color: rgba(100, 116, 139, 0.3);
+        transform: translateY(-50%);
+        cursor: pointer;
+        transition: all 0.2s ease;
+        z-index: 1;
+      }
+      .file-checkbox:hover {
+        background-color: rgba(100, 116, 139, 0.5);
+      }
+      .file-checkbox:checked {
+        background-color: #3b82f6;
+        border-color: #60a5fa;
+        box-shadow: inset 0 0 0 3px #0f172a;
+      }
+      .file-checkbox:checked:hover {
+        background-color: #2563eb;
+      }
+      .context-menu {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 0.5rem;
+        padding: 0.5rem 0;
+        box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+      }
+      .context-menu.show {
+        display: block;
+      }
+      .context-menu-item {
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        whitespace: nowrap;
+      }
+      .context-menu-item:hover {
+        background-color: #334155;
+      }
+      .breadcrumb-item {
+        cursor: pointer;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+      }
+      .breadcrumb-item:hover {
+        background-color: rgba(51, 65, 85, 0.5);
+      }
+      .file-meta {
+        display: none;
+      }
+
+      /* Mobile responsive styles */
+      @media (max-width: 768px) {
+        .file-header {
+          display: none !important;
+        }
+        #file-list .file-item {
+          display: flex;
+          flex-direction: column;
+          gap: 0.5rem;
+          padding: 0.75rem !important;
+        }
+        #file-list .file-item > div {
+          width: 100% !important;
+        }
+        #file-list .file-item .file-size-col,
+        #file-list .file-item .file-modified-col {
+          display: none;
+        }
+        .file-meta {
+          display: flex;
+          justify-content: space-between;
+          font-size: 0.75rem;
+          color: rgb(148 163 184);
+          margin-top: 0.25rem;
+        }
+        .action-buttons {
+          display: flex;
+          gap: 0.5rem;
+          width: 100%;
+          justify-content: flex-end;
+        }
+        .action-buttons button {
+          font-size: 0.875rem;
+          padding: 0.5rem 0.75rem;
+        }
+      }
+
+      /* File editor modal styles */
+      .file-editor-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+        display: none;
+      }
+      .file-editor-modal.show {
+        display: flex;
+      }
+      .file-editor-content {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 0.75rem;
+        width: 90%;
+        max-width: 1200px;
+        height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+      }
+      .file-editor-content > div:nth-child(3) {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+      #editor-textarea {
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        tab-size: 4;
+        white-space: pre;
+        color: #e2e8f0;
+        background-color: #0f172a;
+      }
+      #editor-textarea::-webkit-scrollbar {
+        width: 12px;
+        height: 12px;
+      }
+      #editor-textarea::-webkit-scrollbar-track {
+        background: #1e293b;
+      }
+      #editor-textarea::-webkit-scrollbar-thumb {
+        background: #475569;
+        border-radius: 6px;
+      }
+      #editor-textarea::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+      }
+      #editor-preview {
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.5;
+        tab-size: 4;
+        white-space: pre;
+        margin: 0;
+        background-color: #0f172a;
+        scrollbar-color: #1e293b #0f172a; /* Firefox */
+        scrollbar-width: thin; /* Firefox */
+      }
+      #editor-preview::-webkit-scrollbar {
+        width: 12px !important;
+        height: 12px !important;
+      }
+      #editor-preview::-webkit-scrollbar-track {
+        background: #0f172a !important;
+      }
+      #editor-preview::-webkit-scrollbar-thumb {
+        background: #1e293b !important;
+        border-radius: 6px;
+      }
+      #editor-preview::-webkit-scrollbar-thumb:hover {
+        background: #334155 !important;
+      }
+      #editor-preview::-webkit-scrollbar-corner {
+        background: #0f172a !important;
+      }
+      /* Ensure scrollbars on both axes */
+      #editor-preview * {
+        scrollbar-color: inherit !important;
+        scrollbar-width: inherit !important;
+      }
+      #editor-preview code {
+        background: transparent !important;
+        padding: 0 !important;
+      }
+      .bulk-actions-bar {
+        background-color: rgba(59, 130, 246, 0.15);
+        border: 1px solid rgba(59, 130, 246, 0.4);
+      }
+
+      /* File preview modal styles */
+      .file-preview-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2100;
+      }
+      .file-preview-modal.show {
+        display: flex;
+      }
+      .file-preview-content {
+        background-color: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 0.75rem;
+        width: 92%;
+        max-width: 1100px;
+        height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.5);
+        overflow: hidden;
+      }
+      #preview-content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #0f172a;
+        overflow: auto;
+        padding: 1rem;
+      }
+      #preview-content img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 0.25rem;
+      }
+      #preview-content object {
+        width: 100%;
+        height: 100%;
+        border: none;
+      }
+
+      /* Sidebar styles */
+      .sidebar-item {
+        position: relative;
+        cursor: pointer;
+      }
+      .sidebar-item:hover {
+        background-color: rgba(51, 65, 85, 0.7);
+      }
+      .sidebar-item.active {
+        background-color: rgba(59, 130, 246, 0.15);
+        color: #93c5fd;
+      }
+      .sidebar-item.active::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 4px;
+        bottom: 4px;
+        width: 3px;
+        background-color: #3b82f6;
+        border-radius: 0 2px 2px 0;
+      }
+      .sidebar-section-title {
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: rgb(100 116 139);
+        padding: 0.5rem 0.75rem 0.25rem;
+      }
+      @media (max-width: 1023px) {
+        #sidebar { display: none !important; }
+        #preview-pane-host { display: none !important; }
+      }
+
+      /* Pin star button next to filename */
+      .pin-star-btn {
+        opacity: 0;
+        transition: opacity 0.15s ease, color 0.15s ease;
+        background: transparent;
+        border: 0;
+        padding: 2px 4px;
+        color: rgb(100 116 139);
+        cursor: pointer;
+      }
+      .file-item:hover .pin-star-btn { opacity: 0.7; }
+      .pin-star-btn:hover { color: #facc15; opacity: 1 !important; }
+      .pin-star-btn.pinned { color: #facc15; opacity: 1 !important; }
+
+      /* Drive bar */
+      .drive-usage-bar {
+        height: 3px;
+        background-color: rgba(51, 65, 85, 0.6);
+        border-radius: 2px;
+        overflow: hidden;
+        margin-top: 2px;
+      }
+      .drive-usage-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #3b82f6, #6366f1);
+        border-radius: 2px;
+        transition: width 0.3s ease;
+      }
+      .drive-usage-fill.warn { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+      .drive-usage-fill.crit { background: linear-gradient(90deg, #ef4444, #dc2626); }
+
+      /* Preview pane */
+      #preview-pane-host {
+        width: 320px;
+        flex-shrink: 0;
+        align-self: flex-start;
+        position: sticky;
+        top: 5rem;
+        max-height: calc(100vh - 6rem);
+        overflow-y: auto;
+      }
+      #preview-pane {
+        /* host handles sticky + scroll; inner stays in normal flow */
+      }
+      /* Custom scrollbar for sidebar columns */
+      .sidebar-scroll::-webkit-scrollbar,
+      #preview-pane-host::-webkit-scrollbar { width: 8px; }
+      .sidebar-scroll::-webkit-scrollbar-track,
+      #preview-pane-host::-webkit-scrollbar-track { background: transparent; }
+      .sidebar-scroll::-webkit-scrollbar-thumb,
+      #preview-pane-host::-webkit-scrollbar-thumb { background: rgba(71,85,105,0.6); border-radius: 4px; }
+      .sidebar-scroll::-webkit-scrollbar-thumb:hover,
+      #preview-pane-host::-webkit-scrollbar-thumb:hover { background: rgba(100,116,139,0.8); }
+      #preview-pane.empty .preview-empty { display: flex; }
+      #preview-pane .preview-empty { display: none; }
+      #preview-thumb-box img {
+        max-width: 100%;
+        max-height: 200px;
+        display: block;
+        margin: 0 auto;
+        border-radius: 0.25rem;
+        background: #0f172a;
+      }
+      #preview-text-head {
+        font-family: "Courier New", monospace;
+        font-size: 11px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: #cbd5e1;
+        background: #0f172a;
+        border-radius: 0.25rem;
+        padding: 0.5rem;
+        max-height: 240px;
+        overflow: auto;
+      }
+      #preview-meta-list { font-size: 11px; }
+      #preview-meta-list dt { color: rgb(100 116 139); text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+      #preview-meta-list dd { color: #e2e8f0; word-break: break-all; margin-bottom: 0.5rem; }
+      #preview-hash-value {
+        font-family: "Courier New", monospace;
+        font-size: 10px;
+        word-break: break-all;
+        color: #93c5fd;
+      }
+
+      /* Hex viewer modal */
+      .hex-viewer-modal {
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.85);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2200;
+      }
+      .hex-viewer-modal.show { display: flex; }
+      .hex-viewer-content {
+        background-color: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 0.75rem;
+        width: 92%;
+        max-width: 900px;
+        max-height: 88vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.6);
+      }
+      #hex-viewer-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 0.75rem 1rem;
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+        line-height: 1.45;
+        color: #cbd5e1;
+        background: #0b1220;
+      }
+      #hex-viewer-body .hex-row { display: flex; gap: 1.5rem; white-space: pre; }
+      #hex-viewer-body .hex-off { color: rgb(100 116 139); min-width: 80px; }
+      #hex-viewer-body .hex-bytes { color: #93c5fd; }
+      #hex-viewer-body .hex-ascii { color: #fde68a; }
+      #hex-viewer-body .hex-ascii .np { color: rgb(71 85 105); }
+    </style>
+    <script defer src="/assets/toast.js"></script>
+    <script defer src="/assets/ripple.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <main class="max-w-[1600px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 class="text-2xl font-bold">File Browser</h1>
+          <p id="client-id-header" class="mt-1 text-sm text-slate-400 font-mono">Loading client...</p>
+        </div>
+        <span id="status-indicator" class="inline-flex self-start sm:self-auto items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-xs font-medium">
+          <i class="fa-solid fa-circle-notch fa-spin"></i> Connecting...
+        </span>
+      </div>
+
+      <div class="flex gap-4">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="w-52 flex-shrink-0 hidden lg:block">
+          <div class="sticky flex flex-col gap-3 sidebar-scroll" style="top: 5rem; max-height: calc(100vh - 6rem); overflow-y: auto;">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+              <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <i class="fa-solid fa-star text-yellow-400 text-xs"></i>
+                  <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Pinned</span>
+                </div>
+                <button
+                  id="sidebar-pin-current-btn"
+                  class="text-[10px] text-slate-400 hover:text-blue-300 transition-colors"
+                  title="Pin current path"
+                  type="button"
+                >
+                  <i class="fa-solid fa-plus"></i>
+                </button>
+              </div>
+              <div id="sidebar-pinned" class="p-1.5">
+                <div class="text-xs text-slate-500 text-center py-3">No pinned paths.<br><span class="text-slate-600">Right-click any folder.</span></div>
+              </div>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+              <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center gap-2">
+                <i class="fa-solid fa-bookmark text-blue-400 text-xs"></i>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Quick Access</span>
+              </div>
+              <div id="sidebar-content" class="p-1.5">
+                <div class="text-xs text-slate-500 text-center py-4">Connecting...</div>
+              </div>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden">
+              <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center gap-2">
+                <i class="fa-solid fa-hard-drive text-slate-400 text-xs"></i>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Drives</span>
+              </div>
+              <div id="sidebar-drives" class="p-1.5">
+                <div class="text-xs text-slate-500 text-center py-4">Connecting...</div>
+              </div>
+            </div>
+          </div>
+        </aside>
+        <!-- Main Content -->
+        <div class="flex-1 min-w-0 flex flex-col gap-4">
+        <!-- Workspace actions -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/20"><i class="fa-solid fa-folder-tree text-sky-400"></i></span>
+            <div><h2 class="text-sm font-semibold">Remote files</h2><p class="text-xs text-slate-500">Browse, transfer, and manage this client’s filesystem.</p></div>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button
+              id="search-btn"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm disabled:opacity-40"
+              disabled
+            >
+              <i class="fa-solid fa-search"></i> Search
+            </button>
+            <button
+              id="refresh-btn"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm disabled:opacity-40"
+              disabled
+            >
+              <i class="fa-solid fa-refresh"></i> Refresh
+            </button>
+            <button
+              id="upload-btn"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 border border-emerald-500 text-white text-sm font-medium disabled:opacity-40"
+              disabled
+            >
+              <i class="fa-solid fa-upload"></i> Upload
+            </button>
+            <button
+              id="mkdir-btn"
+              class="flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 border border-violet-500 text-white text-sm font-medium disabled:opacity-40"
+              disabled
+            >
+              <i class="fa-solid fa-folder-plus"></i> New folder
+            </button>
+          </div>
+        </div>
+
+        <!-- Search Bar (hidden by default) -->
+        <div
+          id="search-bar"
+          class="hidden px-4 py-3 bg-slate-900/60 border border-slate-800 rounded-xl"
+        >
+          <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <i class="fa-solid fa-search text-slate-400"></i>
+            <input
+              type="text"
+              id="search-input"
+              placeholder="Search files or content..."
+              class="flex-1 min-w-48 bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-500"
+            />
+            <label
+              class="inline-flex items-center gap-2 text-sm text-slate-300"
+            >
+              <input
+                type="checkbox"
+                id="search-content-checkbox"
+                class="rounded"
+              />
+              <span>Search in files</span>
+            </label>
+            <button
+              id="search-execute-btn"
+              class="inline-flex items-center px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+            >
+              Search
+            </button>
+            <button
+              id="search-close-btn"
+              class="inline-flex items-center px-2 py-1 rounded hover:bg-slate-700 text-slate-400"
+            >
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bulk Actions Bar (hidden by default) -->
+        <div
+          id="bulk-actions-bar"
+          class="hidden bulk-actions-bar px-4 py-3 rounded-xl"
+        >
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <span class="text-sm font-medium"
+              ><span id="selected-count">0</span> items selected</span
+            >
+            <div class="flex items-center gap-2 flex-wrap">
+              <button
+                id="bulk-download-btn"
+                class="inline-flex items-center gap-2 px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+              >
+                <i class="fa-solid fa-download"></i> Download
+              </button>
+              <button
+                id="bulk-delete-btn"
+                class="inline-flex items-center gap-2 px-3 py-1 rounded bg-red-600 hover:bg-red-700 text-white text-sm"
+              >
+                <i class="fa-solid fa-trash"></i> Delete
+              </button>
+              <button
+                id="bulk-move-btn"
+                class="inline-flex items-center gap-2 px-3 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-sm"
+              >
+                <i class="fa-solid fa-arrows-alt"></i> Move
+              </button>
+              <button
+                id="bulk-copy-btn"
+                class="inline-flex items-center gap-2 px-3 py-1 rounded bg-green-600 hover:bg-green-700 text-white text-sm"
+              >
+                <i class="fa-solid fa-copy"></i> Copy
+              </button>
+              <button
+                id="clear-selection-btn"
+                class="inline-flex items-center px-2 py-1 rounded hover:bg-slate-700 text-slate-300 text-sm"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Path Navigation Bar -->
+        <div
+          class="flex items-center gap-2 px-3 py-3 bg-slate-900/60 border border-slate-800 rounded-xl"
+        >
+          <button
+            id="back-btn"
+            class="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-700 text-slate-300"
+            title="Go back"
+          >
+            <i class="fa-solid fa-arrow-left"></i>
+          </button>
+          <button
+            id="home-btn"
+            class="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-700 text-slate-300"
+            title="Go to home/root"
+          >
+            <i class="fa-solid fa-home"></i>
+          </button>
+          <div
+            class="flex-1 flex items-center gap-2 px-3 py-2 bg-slate-950/60 border border-slate-700 rounded-lg focus-within:border-sky-500 focus-within:ring-2 focus-within:ring-sky-500/20"
+          >
+            <i class="fa-solid fa-folder-open text-yellow-400 text-sm"></i>
+            <input
+              type="text"
+              id="path-input"
+              placeholder="Enter path (e.g., C:\, /home, .)"
+              class="flex-1 bg-transparent outline-none text-sm text-slate-100 placeholder:text-slate-500"
+              spellcheck="false"
+            />
+            <button
+              id="path-go-btn"
+              class="inline-flex items-center px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs"
+            >
+              Go
+            </button>
+          </div>
+        </div>
+
+        <!-- Breadcrumb Navigation -->
+        <div
+          class="flex items-center gap-2 px-3 py-2 bg-slate-950/30 border border-slate-800 rounded-xl overflow-x-auto"
+        >
+          <i class="fa-solid fa-folder-open text-yellow-400"></i>
+          <div id="breadcrumb" class="flex items-center gap-1 text-sm"></div>
+        </div>
+
+        <!-- List Controls -->
+        <div
+          class="px-4 py-3 bg-slate-900/60 border border-slate-800 rounded-xl flex items-center justify-between gap-3 flex-wrap"
+        >
+          <div class="flex items-center gap-2 flex-wrap">
+            <label for="sort-field" class="text-xs uppercase tracking-wide text-slate-400"
+              >Sort</label
+            >
+            <select
+              id="sort-field"
+              class="px-3 py-1.5 rounded-lg bg-slate-950/60 border border-slate-700 text-sm text-slate-100"
+            >
+              <option value="name">Name</option>
+              <option value="size">Size</option>
+              <option value="modified">Modified</option>
+              <option value="type">Type</option>
+            </select>
+            <button
+              id="sort-order-btn"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm text-slate-100"
+              type="button"
+            >
+              Asc
+            </button>
+
+            <label for="filter-type" class="text-xs uppercase tracking-wide text-slate-400"
+              >Filter</label
+            >
+            <select
+              id="filter-type"
+              class="px-3 py-1.5 rounded-lg bg-slate-950/60 border border-slate-700 text-sm text-slate-100"
+            >
+              <option value="all">All</option>
+              <option value="dirs">Folders</option>
+              <option value="files">Files</option>
+              <option value="images">Images</option>
+              <option value="docs">Documents</option>
+              <option value="archives">Archives</option>
+              <option value="executables">Executables</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span id="file-count-summary" class="text-sm text-slate-400">0 items</span>
+          </div>
+        </div>
+
+        <!-- File List -->
+        <div
+          id="file-list-panel"
+          class="bg-slate-900/60 border border-slate-800 rounded-xl overflow-hidden min-h-72"
+        >
+          <div
+            class="file-header grid grid-cols-12 gap-3 px-4 py-3 bg-slate-950/60 border-b border-slate-800 text-[11px] font-semibold uppercase tracking-wider text-slate-500"
+          >
+            <div class="col-span-6">Name</div>
+            <div class="col-span-2">Size</div>
+            <div class="col-span-3">Modified</div>
+            <div class="col-span-1 text-right">Actions</div>
+          </div>
+          <div id="file-list" class="divide-y divide-slate-800">
+            <!-- Files will be inserted here -->
+          </div>
+        </div>
+        </div>
+
+        <!-- Preview pane -->
+        <aside id="preview-pane-host" class="hidden lg:block">
+          <div id="preview-pane" class="bg-slate-900/60 border border-slate-800 rounded-xl empty">
+            <div class="px-3 py-2.5 border-b border-slate-700/50 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <i class="fa-solid fa-eye text-blue-400 text-xs flex-shrink-0"></i>
+                <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Preview</span>
+              </div>
+              <button id="preview-pane-toggle" class="text-[10px] text-slate-400 hover:text-blue-300 transition-colors" title="Hide preview pane" type="button">
+                <i class="fa-solid fa-eye-slash"></i>
+              </button>
+            </div>
+            <div class="p-3 space-y-3">
+              <div class="preview-empty flex-col items-center justify-center text-center text-xs text-slate-500 py-10">
+                <i class="fa-solid fa-mouse-pointer text-2xl mb-2 text-slate-600"></i>
+                <div>Click a file to preview.</div>
+              </div>
+
+              <div id="preview-active" class="hidden space-y-3">
+                <div id="preview-thumb-box" class="bg-slate-950/50 border border-slate-800 rounded p-2 min-h-[80px] flex items-center justify-center"></div>
+
+                <div class="text-xs font-medium text-slate-200 truncate" id="preview-name">--</div>
+                <div class="text-[10px] text-slate-500 break-all" id="preview-path">--</div>
+
+                <dl id="preview-meta-list" class="grid grid-cols-2 gap-x-2"></dl>
+
+                <div id="preview-text-head-host" class="hidden">
+                  <div class="text-[10px] uppercase text-slate-500 mb-1 tracking-wide">First 4 KB</div>
+                  <div id="preview-text-head"></div>
+                </div>
+
+                <div class="flex flex-col gap-1.5">
+                  <button id="preview-hex-btn" class="inline-flex items-center justify-center gap-2 px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-100" type="button">
+                    <i class="fa-solid fa-table-cells"></i> Hex preview (4 KB)
+                  </button>
+                  <button id="preview-hash-btn" class="inline-flex items-center justify-center gap-2 px-2 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-100" type="button">
+                    <i class="fa-solid fa-fingerprint"></i> SHA-256
+                  </button>
+                </div>
+                <div id="preview-hash-result" class="hidden">
+                  <div class="text-[10px] uppercase text-slate-500 mb-1 tracking-wide">SHA-256</div>
+                  <div id="preview-hash-value" class="cursor-pointer" title="Click to copy"></div>
+                  <div id="preview-hash-known" class="mt-1 text-[10px] text-emerald-400 hidden"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-2 flex justify-center hidden" id="preview-pane-show-btn-host">
+            <button id="preview-pane-show-btn" class="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200" type="button">
+              <i class="fa-solid fa-eye"></i> Show preview
+            </button>
+          </div>
+        </aside>
+      </div>
+    </main>
+
+    <!-- Context Menu -->
+    <div id="context-menu" class="context-menu">
+      <div class="context-menu-item" data-action="edit">
+        <i class="fa-solid fa-edit mr-2"></i> Edit
+      </div>
+      <div class="context-menu-item" data-action="download">
+        <i class="fa-solid fa-download mr-2"></i> Download
+      </div>
+      <div class="context-menu-item" data-action="zip">
+        <i class="fa-solid fa-file-zipper mr-2"></i> Zip & Download
+      </div>
+      <div class="context-menu-item" data-action="dirsize">
+        <i class="fa-solid fa-calculator mr-2"></i> Calculate Size
+      </div>
+      <div class="context-menu-item" data-action="copy">
+        <i class="fa-solid fa-copy mr-2"></i> Copy
+      </div>
+      <div class="context-menu-item" data-action="move">
+        <i class="fa-solid fa-arrows-alt mr-2"></i> Move
+      </div>
+      <div class="context-menu-item" data-action="chmod">
+        <i class="fa-solid fa-lock mr-2"></i> Permissions
+      </div>
+      <div class="context-menu-separator" style="height:1px;background:#334155;margin:0.25rem 0;"></div>
+      <div class="context-menu-item" data-action="execute">
+        <i class="fa-solid fa-play mr-2"></i> Execute
+      </div>
+      <div class="context-menu-item" data-action="silent_execute">
+        <i class="fa-solid fa-ghost mr-2"></i> Silent Execute
+      </div>
+      <div class="context-menu-separator" style="height:1px;background:#334155;margin:0.25rem 0;"></div>
+      <div class="context-menu-item" data-action="pin">
+        <i class="fa-solid fa-star mr-2"></i> Pin to sidebar
+      </div>
+      <div class="context-menu-item" data-action="unpin">
+        <i class="fa-solid fa-star-half-stroke mr-2"></i> Unpin
+      </div>
+      <div class="context-menu-item" data-action="hex_peek">
+        <i class="fa-solid fa-table-cells mr-2"></i> Hex preview (4 KB)
+      </div>
+      <div class="context-menu-item" data-action="hash">
+        <i class="fa-solid fa-fingerprint mr-2"></i> SHA-256
+      </div>
+      <div class="context-menu-separator" style="height:1px;background:#334155;margin:0.25rem 0;"></div>
+      <div class="context-menu-item text-red-400" data-action="delete">
+        <i class="fa-solid fa-trash mr-2"></i> Delete
+      </div>
+    </div>
+
+    <!-- Hex viewer modal -->
+    <div id="hex-viewer-modal" class="hex-viewer-modal">
+      <div class="hex-viewer-content">
+        <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <i class="fa-solid fa-table-cells text-blue-400 flex-shrink-0"></i>
+            <div class="min-w-0"><div class="text-[10px] uppercase tracking-wider text-slate-500">Hex preview</div><div class="font-semibold truncate" id="hex-viewer-file">--</div></div>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+            <span id="hex-viewer-info" class="text-xs text-slate-400"></span>
+            <button id="hex-viewer-copy-btn" class="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white" type="button">
+              <i class="fa-solid fa-copy"></i> Copy hex
+            </button>
+            <button id="hex-viewer-close-btn" class="px-2 py-1 rounded hover:text-red-400 text-slate-400 transition-colors" type="button">
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+        </div>
+        <div id="hex-viewer-body"></div>
+      </div>
+    </div>
+
+    <!-- File Editor Modal -->
+    <div id="file-editor-modal" class="file-editor-modal">
+      <div class="file-editor-content">
+        <div
+          class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between"
+        >
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-file-code text-blue-400"></i>
+            <span class="font-semibold" id="editor-file-name"
+              >Editing File</span
+            >
+          </div>
+          <button id="editor-close-btn" class="hover:text-red-400">
+            <i class="fa-solid fa-times"></i>
+          </button>
+        </div>
+        <div
+          class="px-4 py-2 bg-slate-900 border-b border-slate-700 flex items-center justify-between gap-2"
+        >
+          <div class="flex items-center gap-2">
+            <button
+              id="editor-edit-tab"
+              class="px-3 py-1 rounded bg-blue-600 text-white text-sm"
+            >
+              Edit
+            </button>
+            <button
+              id="editor-preview-tab"
+              class="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm"
+            >
+              Preview
+            </button>
+          </div>
+          <button
+            id="editor-run-btn"
+            class="px-3 py-1 rounded bg-green-600 hover:bg-green-700 text-white text-sm flex items-center gap-1"
+            title="Execute file"
+          >
+            <i class="fa-solid fa-play"></i> Run
+          </button>
+        </div>
+        <div class="flex-1 overflow-hidden p-4">
+          <textarea
+            id="editor-textarea"
+            class="w-full h-full p-4 rounded border border-slate-700 resize-none focus:outline-none focus:border-blue-500"
+            spellcheck="false"
+          ></textarea>
+          <pre
+            id="editor-preview"
+            class="w-full h-full overflow-auto rounded border border-slate-700 p-4 hidden"
+          ><code id="editor-code" class="language-javascript"></code></pre>
+        </div>
+        <div
+          class="px-4 py-3 bg-slate-800 border-t border-slate-700 flex items-center justify-between"
+        >
+          <div class="flex items-center gap-2 text-sm text-slate-400">
+            <span id="editor-status">Ready</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              id="editor-cancel-btn"
+              class="px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 text-white"
+            >
+              Cancel
+            </button>
+            <button
+              id="editor-save-btn"
+              class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <i class="fa-solid fa-save mr-2"></i> Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- File Preview Modal -->
+    <div id="file-preview-modal" class="file-preview-modal">
+      <div class="file-preview-content">
+        <div class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+          <div class="flex items-center gap-3 min-w-0">
+            <i class="fa-solid fa-eye text-blue-400 flex-shrink-0"></i>
+            <span class="font-semibold truncate" id="preview-file-name">Preview</span>
+          </div>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+            <button
+              id="preview-download-btn"
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
+              title="Download file"
+            >
+              <i class="fa-solid fa-download"></i> Download
+            </button>
+            <button
+              id="preview-close-btn"
+              class="px-2 py-1 rounded hover:text-red-400 text-slate-400 transition-colors"
+              title="Close preview"
+            >
+              <i class="fa-solid fa-times"></i>
+            </button>
+          </div>
+        </div>
+        <div id="preview-content">
+          <!-- Image or PDF will be rendered here -->
+        </div>
+        <div id="preview-status" class="px-4 py-2 text-sm text-slate-400 text-center flex-shrink-0"></div>
+      </div>
+    </div>
+
+    <!-- Transfer Progress Panel -->
+    <div
+      id="transfer-panel"
+      class="hidden fixed bottom-4 right-4 w-96 max-w-[calc(100vw-2rem)] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50"
+    >
+      <div
+        class="px-4 py-3 bg-slate-800 border-b border-slate-700 flex items-center justify-between"
+      >
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-arrow-up-arrow-down"></i>
+          <span class="font-semibold">File Transfers</span>
+        </div>
+      </div>
+      <div id="transfer-list" class="p-3 max-h-96 overflow-y-auto space-y-2">
+        <!-- Transfer items will be added here -->
+      </div>
+    </div>
+
+    <!-- Upload Modal -->
+    <input type="file" id="file-input" style="display: none" multiple />
+
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/filebrowser.js?v=mac-permission-locks-20260609-1"></script>
+  </body>
+</html>

@@ -1,0 +1,163 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+Goylord-Server/public/vendor/
+Goylord-Server/public/assets/tailwind.css
+Goylord-Desktop/src/vendor/
+
+# Internal files (not for public repo)
+AGENTS.md
+Changes.md
+test-e2e.ts
+
+# Tauri
+Goylord-Desktop/src-tauri/target/
+Goylord-Desktop/src-tauri/gen/
+Goylord-Desktop/src-tauri/Cargo.lock
+
+# Go
+bin/
+*.exe
+*.test
+*.out
+*.dll
+*.wasm
+*.zip
+go.work.sum
+
+# Certificates (auto-generated)
+certs/
+*.crt
+*.key
+*.pem
+*.csr
+*.pfx
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+config.json
+
+# Logs
+*.log
+
+# Binaries
+goylord-agent.exe
+dist-clients/
+goylord-agent-*
+
+# Runtime data
+Goylord-Server/data/
+Goylord-Server/.test-data/
+Goylord-Server/dist/
+Goylord-Server/plugins/*.zip
+Goylord-Server/plugins/.plugin-state.json
+Goylord-Server/server.log
+Goylord-Server/server-err.log
+
+# Plugins (private)
+plugins/hrdp/*
+plugins/netscan/
+plugins/sysprofile/
+plugins/ranreg/
+plugins/toxi/
+plugins/toxi copy/*
+plugins/extension/*
+plugins/plink/*
+plugins/plink-static/*
+plugins/sample-go/*.wasm
+plugins/sample-go/*.zip
+plugins/sample-go/*.h
+plugins/clipreplace
+plugins/build-netscan.bat
+plugins/build-netscan.sh
+plugins/build-sysprofile.bat
+plugins/build-sysprofile.sh
+plugins/build-ranreg.bat
+plugins/build-toxi.bat
+Goylord-Server/plugins/*
+
+# Docker
+.docker-cache/
+
+# Release packaging
+release/
+
+# Testing (logs, test data)
+testing/
+test-e2e.ts
+
+# Stress test / load generator
+stress/
+Goylord-Client/cmd/loadgen/
+
+# Third-party vendored sources
+Goylord-Client/third_party/amf
+Goylord-Client/third_party/onevpl
+
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+[Dd]ebug/
+[Rr]elease/
+[Rr]eleases/
+**/[Bb]in/*
+**/[Oo]bj/
+
+# Node
+.cache/
+.tmp/
+.bun/
+
+# Local notes (never push)
+TODO-IMPROVEMENTS.md
+upx-reference.txt
+AGENTS.md
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+~$*
+
+# Misc
+save.txt
+Albedo/*
+plink/*
+*.pdb
+*.ilk
+*.obj
+*.idb
+*.pch
+*.iobj
+*.ipdb
+*.pgc
+*.pgd
+*.rsp
+*.sbr
+*.tlog
+*.vspscc
+*.vssscc
+*.pidb
+*.svclog
+*.scc
+*.ncb
+*.aps
+*.opendb
+*.opensdf
+*.sdf
+*.cachefile
+*.VC.db
+*.VC.VC.opendb

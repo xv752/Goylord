@@ -1,0 +1,32 @@
+================================================================================
+  GOYLORD DESKTOP — PLEASE READ BEFORE USING
+================================================================================
+
+This application is a DESKTOP CLIENT ONLY. It does NOT include the server.
+
+If you launch Goylord Desktop without a running Goylord server, it will
+show a connection error and nothing will work. That is expected.
+
+--------------------------------------------------------------------------------
+  WHAT YOU NEED TO DO
+--------------------------------------------------------------------------------
+
+1. Set up and start the Goylord server FIRST.
+   The server is a separate component that you must deploy yourself.
+
+2. Full setup instructions are in the README:
+   https://github.com/xv752/Goylord/blob/main/README.md
+
+3. Once the server is running, open this desktop client and enter the
+   server's IP address (or hostname) and port on the connection screen.
+
+--------------------------------------------------------------------------------
+  QUICK SUMMARY
+--------------------------------------------------------------------------------
+
+  Goylord Desktop  →  connects TO a server
+  Goylord Server   →  must be running BEFORE you connect
+
+Without the server, this client is useless.
+
+================================================================================

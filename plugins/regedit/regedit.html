@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Registry Editor</title>
+    <link rel="stylesheet" href="/plugins/regedit/assets/regedit.css" />
+  </head>
+  <body>
+    <main class="regedit-shell">
+      <header class="regedit-topbar">
+        <div>
+          <h1>Registry Editor</h1>
+          <p>Browse, edit, import, and export Windows registry keys on the selected client.</p>
+        </div>
+        <label class="client-box">
+          <span>Client ID</span>
+          <input id="client-id" placeholder="clientId" autocomplete="off" />
+        </label>
+      </header>
+
+      <section class="toolbar">
+        <button id="btn-refresh" class="btn primary"><i class="fa-solid fa-rotate"></i><span>Refresh</span></button>
+        <button id="btn-up" class="btn"><i class="fa-solid fa-arrow-up"></i><span>Up</span></button>
+        <button id="btn-new-key" class="btn"><i class="fa-solid fa-folder-plus"></i><span>New Key</span></button>
+        <button id="btn-new-value" class="btn"><i class="fa-solid fa-plus"></i><span>New Value</span></button>
+        <button id="btn-delete-key" class="btn danger"><i class="fa-solid fa-trash"></i><span>Delete Key</span></button>
+        <button id="btn-import" class="btn"><i class="fa-solid fa-file-import"></i><span>Import .reg</span></button>
+        <button id="btn-export" class="btn"><i class="fa-solid fa-file-export"></i><span>Export .reg</span></button>
+      </section>
+
+      <section class="pathbar">
+        <input id="path-input" spellcheck="false" value="HKCU" />
+        <button id="btn-go" class="btn primary"><i class="fa-solid fa-location-arrow"></i><span>Go</span></button>
+      </section>
+
+      <section class="workspace">
+        <aside class="tree-pane">
+          <div class="pane-title">Keys</div>
+          <div id="key-tree" class="key-tree"></div>
+        </aside>
+        <section class="value-pane">
+          <div class="pane-title">
+            <span id="current-key">HKCU</span>
+            <span id="status-pill" class="status-pill">Idle</span>
+          </div>
+          <table class="value-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Data</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="value-body"></tbody>
+          </table>
+        </section>
+      </section>
+
+      <section class="console-pane">
+        <div class="pane-title">Activity</div>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <dialog id="value-dialog">
+      <form method="dialog" class="dialog-body">
+        <h2 id="value-dialog-title">Edit Value</h2>
+        <label>
+          <span>Name</span>
+          <input id="value-name" spellcheck="false" />
+        </label>
+        <label>
+          <span>Type</span>
+          <select id="value-type">
+            <option>REG_SZ</option>
+            <option>REG_EXPAND_SZ</option>
+            <option>REG_DWORD</option>
+            <option>REG_QWORD</option>
+            <option>REG_BINARY</option>
+            <option>REG_MULTI_SZ</option>
+          </select>
+        </label>
+        <label>
+          <span>Data</span>
+          <textarea id="value-data" rows="7" spellcheck="false"></textarea>
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" class="btn">Cancel</button>
+          <button id="btn-save-value" value="default" class="btn primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="reg-dialog">
+      <form method="dialog" class="dialog-body wide">
+        <h2 id="reg-dialog-title">.reg Data</h2>
+        <textarea id="reg-text" rows="18" spellcheck="false"></textarea>
+        <div class="dialog-actions">
+          <button value="cancel" class="btn">Close</button>
+          <button id="btn-run-import" value="default" class="btn primary">Import</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/plugins/regedit/assets/regedit.js"></script>
+  </body>
+</html>

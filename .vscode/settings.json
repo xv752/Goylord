@@ -1,0 +1,7 @@
+{
+  "testing.exclude": {
+    "**/Goylord-Server/dist/**": true,
+    "**/dist/Goylord-Client/**": true,
+    "**/dist-clients/**": true
+  }
+}

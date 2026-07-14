@@ -1,0 +1,41 @@
+.sample-build-hooks {
+  display: grid;
+  gap: 12px;
+}
+
+.sample-build-hooks__header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.sample-build-hooks h2 {
+  color: #e5e7eb;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.sample-build-hooks button {
+  background: #0f766e;
+  border: 1px solid #14b8a6;
+  border-radius: 8px;
+  color: #ecfeff;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.sample-build-hooks pre {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 12px;
+  margin: 0;
+  min-height: 180px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}

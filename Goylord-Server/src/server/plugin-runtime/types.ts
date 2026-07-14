@@ -1,0 +1,45 @@
+export type PluginRpcCaller = {
+  id: number;
+  role: string;
+};
+
+export type WorkerInbound =
+  | {
+      type: "boot";
+      pluginId: string;
+      serverScript: string;
+      dbPath: string;
+      pluginRoot: string;
+    }
+  | {
+      type: "event";
+      clientId: string;
+      event: string;
+      payload: unknown;
+    }
+  | {
+      type: "rpc";
+      id: string;
+      method: string;
+      params: unknown;
+      caller: PluginRpcCaller;
+    }
+  | {
+      type: "build_hook";
+      id: string;
+      hook: string;
+      payload: unknown;
+    }
+  | {
+      type: "shutdown";
+    };
+
+export type WorkerOutbound =
+  | { type: "ready" }
+  | { type: "boot_error"; error: string }
+  | { type: "rpc_reply"; id: string; ok: true; result: unknown }
+  | { type: "rpc_reply"; id: string; ok: false; error: string }
+  | { type: "build_hook_reply"; id: string; ok: true; result: unknown }
+  | { type: "build_hook_reply"; id: string; ok: false; error: string }
+  | { type: "broadcast"; channel: string; data: unknown }
+  | { type: "log"; level: "debug" | "info" | "warn" | "error"; message: string };

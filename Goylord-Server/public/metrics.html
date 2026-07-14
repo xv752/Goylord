@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Metrics - Goylord</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <style>
+      #top-nav {
+        position: relative;
+        z-index: 50;
+      }
+      #country-globe {
+        position: relative;
+        z-index: 0;
+      }
+      #country-globe-canvas {
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+      #country-globe-canvas.is-dragging {
+        cursor: grabbing;
+      }
+      .country-globe-controls {
+        position: absolute;
+        right: 1rem;
+        top: 1rem;
+        display: flex;
+        gap: 0.375rem;
+        z-index: 3;
+      }
+      .country-globe-control {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 0.375rem;
+        border: 1px solid rgba(51, 65, 85, 0.95);
+        background: rgba(15, 23, 42, 0.82);
+        color: #cbd5e1;
+      }
+      .country-globe-control:hover {
+        color: #f8fafc;
+        border-color: rgba(20, 184, 166, 0.72);
+        background: rgba(15, 23, 42, 0.94);
+      }
+      #country-globe-tooltip {
+        position: absolute;
+        z-index: 4;
+        min-width: 9rem;
+        max-width: 14rem;
+        padding: 0.5rem 0.625rem;
+        border: 1px solid rgba(51, 65, 85, 0.95);
+        border-radius: 0.375rem;
+        background: rgba(15, 23, 42, 0.94);
+        color: #e2e8f0;
+        font-size: 0.75rem;
+        line-height: 1.25;
+        pointer-events: none;
+        box-shadow: 0 12px 30px rgba(2, 6, 23, 0.35);
+        transform: translate(-50%, calc(-100% - 0.75rem));
+      }
+      #country-globe-tooltip.hidden {
+        display: none;
+      }
+    </style>
+    <script defer src="/assets/toast.js"></script>
+    <script defer src="/assets/ripple.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="flex flex-col gap-6">
+        <!-- Header -->
+        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+          <div>
+            <h1 class="text-2xl font-bold">Metrics Dashboard</h1>
+            <p class="text-sm text-slate-400 mt-1">Live infrastructure health, traffic, and runtime performance.</p>
+          </div>
+          <div class="flex items-center gap-2 text-xs">
+            <span
+              id="metrics-status"
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 font-medium"
+            >
+              <span class="relative flex h-2 w-2"><span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60"></span><span class="relative inline-flex h-2 w-2 rounded-full bg-emerald-400"></span></span>
+              <span id="status-text">Live</span>
+            </span>
+            <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800 bg-slate-900/60 text-slate-400"><i class="fa-solid fa-clock-rotate-left text-slate-500"></i><span id="last-update">Never</span></span>
+          </div>
+        </div>
+
+        <!-- Key Metrics Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <!-- Clients Online -->
+          <div class="relative overflow-hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-slate-400 text-sm font-medium">Clients Online</span>
+              <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-sky-500/10 border border-sky-500/20"><i class="fa-solid fa-desktop text-sky-400"></i></span>
+            </div>
+            <div class="text-3xl font-bold tracking-tight" id="clients-online">0</div>
+            <div class="text-xs text-slate-500 mt-1">
+              <span id="clients-total">0</span> total
+            </div>
+          </div>
+
+          <!-- Active Sessions -->
+          <div class="relative overflow-hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-slate-400 text-sm font-medium">Active Sessions</span>
+              <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/10 border border-emerald-500/20"><i class="fa-solid fa-plug text-emerald-400"></i></span>
+            </div>
+            <div class="text-3xl font-bold tracking-tight" id="active-sessions">0</div>
+            <div class="text-xs text-slate-500 mt-1">
+              Console, RD, Files, Processes
+            </div>
+          </div>
+
+          <!-- Commands (Last Hour) -->
+          <div class="relative overflow-hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-slate-400 text-sm font-medium">Commands/Hour</span>
+              <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-violet-500/10 border border-violet-500/20"><i class="fa-solid fa-terminal text-violet-400"></i></span>
+            </div>
+            <div class="text-3xl font-bold tracking-tight" id="commands-hour">0</div>
+            <div class="text-xs text-slate-500 mt-1">
+              <span id="commands-minute">0</span>/min •
+              <span id="commands-total">0</span> total
+            </div>
+          </div>
+
+          <!-- Bandwidth -->
+          <div class="relative overflow-hidden bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-slate-400 text-sm font-medium">Bandwidth</span>
+              <span class="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-orange-500/10 border border-orange-500/20"><i class="fa-solid fa-arrow-right-arrow-left text-orange-400"></i></span>
+            </div>
+            <div class="text-3xl font-bold tracking-tight" id="bandwidth-rate">0 KB/s</div>
+            <div class="text-xs text-slate-500 mt-1">
+              ↑ <span id="bandwidth-sent">0 MB</span> • ↓
+              <span id="bandwidth-received">0 MB</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 pt-1">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 border border-indigo-500/20"><i class="fa-solid fa-chart-line text-indigo-400"></i></div>
+          <div><h2 class="font-semibold">Traffic and activity</h2><p class="text-xs text-slate-500">Live client and command volume.</p></div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Clients Timeline -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-chart-area text-blue-400"></i>
+              Clients Over Time
+            </h3>
+            <div class="h-64">
+              <canvas id="clients-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Commands Timeline -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-chart-line text-purple-400"></i>
+              Commands Per Minute
+            </h3>
+            <div class="h-64">
+              <canvas id="commands-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 pt-2">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-500/10 border border-rose-500/20"><i class="fa-solid fa-gauge-high text-rose-400"></i></div>
+          <div><h2 class="font-semibold">Operational pressure</h2><p class="text-xs text-slate-500">Throughput, latency, memory, and event-loop health.</p></div>
+        </div>
+
+        <!-- Operational Pressure Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-network-wired text-orange-400"></i>
+              Network Throughput
+            </h3>
+            <div class="h-64">
+              <canvas id="bandwidth-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-arrow-right-arrow-left text-emerald-400"></i>
+              HTTP Requests
+            </h3>
+            <div class="h-64">
+              <canvas id="http-requests-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-gauge-high text-rose-400"></i>
+              HTTP Latency
+            </h3>
+            <div class="h-64">
+              <canvas id="http-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-memory text-cyan-400"></i>
+              Runtime Memory
+            </h3>
+            <div class="h-64">
+              <canvas id="memory-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-stopwatch text-amber-400"></i>
+              Event Loop Lag
+            </h3>
+            <div class="h-64">
+              <canvas id="event-loop-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Slow HTTP Routes -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-route text-rose-400"></i>
+              Slowest HTTP Routes
+            </h3>
+            <div class="text-xs text-slate-500">Sorted by p95 latency, last minute</div>
+          </div>
+          <div
+            id="http-routes"
+            class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3"
+          >
+            <div class="text-slate-500 col-span-full text-center py-4">
+              No HTTP route samples yet
+            </div>
+          </div>
+        </div>
+
+        <!-- Slow Internal Jobs -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-gears text-cyan-400"></i>
+              Slowest Internal Jobs
+            </h3>
+            <div class="text-xs text-slate-500">Sorted by p95 duration, last minute</div>
+          </div>
+          <div
+            id="internal-tasks"
+            class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3"
+          >
+            <div class="text-slate-500 col-span-full text-center py-4">
+              No internal job samples yet
+            </div>
+          </div>
+        </div>
+
+        <!-- Retained Runtime State -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-box-archive text-violet-400"></i>
+              Retained Runtime State
+            </h3>
+            <div class="text-xs text-slate-500">Long-lived maps, queues, and caches</div>
+          </div>
+          <div
+            id="retained-state"
+            class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3"
+          >
+            <div class="text-slate-500 col-span-full text-center py-4">
+              No retained state counters yet
+            </div>
+          </div>
+        </div>
+
+        <!-- Mix Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-plug text-emerald-400"></i>
+              Session Mix
+            </h3>
+            <div class="h-64">
+              <canvas id="sessions-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+              <i class="fa-brands fa-windows text-cyan-400"></i>
+              Operating Systems
+            </h3>
+            <div class="h-64">
+              <canvas id="os-chart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Additional Stats -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- Server Stats -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-server text-green-400"></i>
+              Server
+            </h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Uptime:</span>
+                <span id="server-uptime">0s</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Heap Used:</span>
+                <span id="server-memory">0 MB</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">RSS:</span>
+                <span id="server-rss">0 MB</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">System Memory:</span>
+                <span id="server-system-memory">0 MB</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">CPU Load:</span>
+                <span id="server-cpu-load">0.00 / 0.00 / 0.00</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Total Connections:</span>
+                <span id="total-connections">0</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Clients by OS -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">
+              <i class="fa-brands fa-windows text-cyan-400"></i>
+              Clients by OS
+            </h3>
+            <div id="clients-by-os" class="space-y-2 text-sm">
+              <div class="text-slate-500">No data</div>
+            </div>
+          </div>
+
+          <!-- HTTP, Ping & Event Loop -->
+          <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+            <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">
+              <i class="fa-solid fa-wave-square text-amber-400"></i>
+              HTTP, Ping & Event Loop
+            </h3>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <span class="text-slate-400">Requests/min:</span>
+                <span id="http-requests-minute">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Errors/min:</span>
+                <span id="http-errors-minute">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Latency avg/p95/p99:</span>
+                <span>
+                  <span id="http-latency-avg">0</span> /
+                  <span id="http-latency-p95">0</span> /
+                  <span id="http-latency-p99">0</span>
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Loop lag avg/p95:</span>
+                <span>
+                  <span id="event-loop-avg">0</span> /
+                  <span id="event-loop-p95">0</span>
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Loop lag max:</span>
+                <span id="event-loop-max">0</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Ping avg:</span>
+                <span id="ping-avg">-</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Ping min/max:</span>
+                <span>
+                  <span id="ping-min">-</span> /
+                  <span id="ping-max">-</span>
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-slate-400">Ping samples:</span>
+                <span id="ping-count">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Country Globe -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+              <i class="fa-solid fa-globe text-emerald-400"></i>
+              Client Geography Globe
+            </h3>
+            <div class="text-xs text-slate-500">Warmer color = higher client concentration</div>
+          </div>
+          <div id="country-globe" class="relative rounded-lg border border-slate-800 overflow-hidden bg-slate-950">
+            <div class="country-globe-controls" aria-label="Globe zoom controls">
+              <button id="country-globe-zoom-out" class="country-globe-control" type="button" title="Zoom out" aria-label="Zoom out">
+                <i class="fa-solid fa-minus"></i>
+              </button>
+              <button id="country-globe-zoom-reset" class="country-globe-control" type="button" title="Reset zoom" aria-label="Reset zoom">
+                <i class="fa-solid fa-rotate-left"></i>
+              </button>
+              <button id="country-globe-zoom-in" class="country-globe-control" type="button" title="Zoom in" aria-label="Zoom in">
+                <i class="fa-solid fa-plus"></i>
+              </button>
+            </div>
+            <canvas
+              id="country-globe-canvas"
+              class="block w-full h-96"
+              width="1000"
+              height="640"
+            ></canvas>
+            <div id="country-globe-tooltip" class="hidden"></div>
+            <div class="pointer-events-none absolute left-4 bottom-4 flex items-center gap-2 rounded bg-slate-950/80 border border-slate-800 px-3 py-2 text-xs text-slate-400">
+              <span>Low</span>
+              <span
+                class="inline-block h-2 w-20 rounded-full"
+                style="background: linear-gradient(90deg, #22d3ee, #6ee7b7, #fbbf24, #ef4444)"
+              ></span>
+              <span>High</span>
+            </div>
+          </div>
+          <div class="text-xs text-slate-500 mt-2">
+            Data is based on IP geo lookup and client-reported country.
+          </div>
+        </div>
+
+        <!-- Command Types Breakdown -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 sm:p-5">
+          <h3 class="text-lg font-semibold mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-list text-indigo-400"></i>
+            Command Types
+          </h3>
+          <div
+            id="command-types"
+            class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3"
+          >
+            <div class="text-slate-500 col-span-full text-center py-4">
+              No commands executed yet
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/metrics.js"></script>
+  </body>
+</html>

@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Goylord Webcam Viewer</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+<link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <link rel="stylesheet" href="/assets/console.css" />
+    <script defer src="/assets/logout.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <main class="px-5 py-6 flex-1 flex flex-col">
+      <div class="flex-1 flex flex-col gap-4" style="max-width: 100%">
+        <div class="flex flex-wrap gap-2 items-center">
+          <div class="flex items-center gap-2">
+            <button id="startBtn" class="button primary">
+              <i class="fa-solid fa-play"></i><span>Start</span>
+            </button>
+            <button id="stopBtn" class="button ghost">
+              <i class="fa-solid fa-stop"></i><span>Stop</span>
+            </button>
+            <button id="screenshotBtn" class="button ghost" title="Download current frame as JPG">
+              <i class="fa-solid fa-camera"></i><span>Screenshot</span>
+            </button>
+          </div>
+          <div
+            id="streamStatus"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-full bg-slate-800 text-slate-300 border border-slate-700 text-sm"
+          >
+            <i class="fa-solid fa-circle-notch fa-spin"></i>
+            <span>Connecting</span>
+          </div>
+          <div
+            class="flex items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-300"
+          >
+            <span class="uppercase tracking-wide text-xs text-slate-500">fps</span>
+            <span id="viewerFps" class="pill pill-ghost font-mono text-sky-200">--</span>
+          </div>
+
+          <div class="relative ml-auto" id="rdSettingsWrap">
+            <button
+              id="rdSettingsBtn"
+              type="button"
+              class="button ghost"
+              aria-haspopup="true"
+              aria-expanded="false"
+            >
+              <i class="fa-solid fa-sliders"></i><span>Settings</span>
+              <i class="fa-solid fa-chevron-down text-[10px] text-slate-400 ml-1"></i>
+            </button>
+
+            <div
+              id="rdSettingsMenu"
+              class="hidden absolute right-0 top-full mt-2 w-[360px] max-h-[75vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900/95 backdrop-blur-md shadow-2xl shadow-black/50 z-50"
+              role="menu"
+            >
+              <div class="px-4 py-3 border-b border-slate-800">
+                <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Camera</div>
+                <div class="flex items-center gap-2">
+                  <label class="text-sm text-slate-300 w-20" for="cameraSelect">Camera</label>
+                  <select
+                    id="cameraSelect"
+                    class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100"
+                  ></select>
+                  <button id="refreshCameras" class="button ghost" title="Refresh camera list">
+                    <i class="fa-solid fa-rotate"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div class="px-4 py-3 border-b border-slate-800">
+                <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Video</div>
+                <div class="flex items-center gap-2 mb-2">
+                  <label class="text-sm text-slate-300 w-20" for="qualitySlider">Quality</label>
+                  <input
+                    id="qualitySlider"
+                    type="range"
+                    min="10"
+                    max="100"
+                    step="5"
+                    value="90"
+                    class="flex-1 accent-sky-400"
+                  />
+                  <span id="qualityValue" class="pill pill-ghost text-slate-100 text-xs min-w-[44px] text-center">90%</span>
+                </div>
+                <div class="flex items-center gap-2 mb-2">
+                  <label class="text-sm text-slate-300 w-20" for="webrtcMode">Transport</label>
+                  <select id="webrtcMode" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Streaming transport. P2P: browser ↔ agent direct (H.264 required). Relayed: through MediaMTX. Canvas: existing WS path.">
+                    <option value="off" selected>Canvas</option>
+                    <option value="p2p">WebRTC P2P</option>
+                    <option value="relayed">WebRTC Relayed</option>
+                  </select>
+                </div>
+                <div class="flex items-center gap-2 mb-2">
+                  <label class="text-sm text-slate-300 w-20" for="fpsInput">Max FPS</label>
+                  <input id="fpsInput" type="number" min="1" max="120" value="30" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" />
+                  <button id="applyFps" class="button ghost" title="Apply FPS">
+                    <i class="fa-solid fa-check"></i>
+                  </button>
+                </div>
+                <div class="flex items-center justify-between gap-2">
+                  <label class="flex items-center gap-2 text-sm text-slate-200" title="Prefer H.264 when available; disable to force JPEG">
+                    <input type="checkbox" id="codecH264" checked /> H.264
+                  </label>
+                  <span id="codecMode" class="pill pill-ghost text-slate-100 text-xs">Codec: auto</span>
+                </div>
+              </div>
+
+              <div class="px-4 py-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Audio</div>
+                <label class="flex items-center gap-2 text-sm text-slate-200 mb-2" title="Stream system audio from the remote machine while viewing webcam">
+                  <input type="checkbox" id="audioCtrl" />
+                  <i class="fa-solid fa-volume-high text-slate-400"></i>
+                  <span>Enable audio</span>
+                </label>
+                <div class="flex items-center gap-2">
+                  <label class="text-sm text-slate-300 w-20" for="audioTransport">Via</label>
+                  <select id="audioTransport" class="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-100" title="Audio transport. WS uses raw PCM; WebRTC modes use an audio track.">
+                    <option value="off" selected>WS</option>
+                    <option value="p2p">WebRTC P2P</option>
+                    <option value="relayed">WebRTC Relayed</option>
+                  </select>
+                </div>
+                <audio id="webrtcAudio" autoplay style="display: none"></audio>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="canvasContainer"
+          class="flex-1 rounded-xl border border-slate-800 bg-slate-900/70 shadow-lg overflow-hidden flex flex-col"
+          style="min-height: 500px"
+        >
+          <div class="p-3 text-sm text-slate-400 flex-shrink-0">
+            Client: <span id="clientLabel" class="text-slate-100">-</span>
+          </div>
+          <div
+            class="flex-1 flex items-center justify-center p-4"
+            style="min-height: 0; overflow: hidden"
+          >
+            <canvas
+              id="frameCanvas"
+              class="bg-slate-950"
+              width="1280"
+              height="720"
+              style="display: block; max-width: 100%; max-height: 100%; width: auto; height: auto;"
+            ></canvas>
+            <video
+              id="webrtcVideo"
+              class="bg-slate-950"
+              autoplay
+              playsinline
+              muted
+              style="display: none; max-width: 100%; max-height: 100%; width: auto; height: auto;"
+            ></video>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script defer src="/vendor/msgpackr/msgpackr.js"></script>
+    <script defer src="/assets/remotedesktop-settings-menu.js"></script>
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/webcam.js"></script>
+  </body>
+</html>

@@ -1,0 +1,2413 @@
+import { state } from "./state.js";
+import { debounce } from "./utils.js";
+import { createRenderer } from "./render.js";
+import { openMenu, closeMenu, openModal, wireModalClose, getMenu, goylordAlert, goylordConfirm, goylordPrompt, dismissFilterPanels } from "./ui.js";
+import {
+  registerRenderer,
+  loadWithOptions,
+  renderCachedClients,
+  startAutoRefresh,
+  sendCommand,
+  pingClientNow,
+  requestPreview,
+  requestThumbnail,
+  markManualDisconnect,
+} from "./data.js";
+import { ThumbnailLoader } from "./thumbnail-loader.js";
+import { initDashboardStats, updateDashboardStatsFromClients } from "./dashboard-stats.js";
+
+const grid = document.getElementById("grid");
+const totalPill = document.getElementById("total-pill");
+const pageLabel = document.getElementById("page-label");
+const pageTotal = document.getElementById("page-total");
+const prevBtn = document.getElementById("prev");
+const nextBtn = document.getElementById("next");
+const pageJumpForm = document.getElementById("page-jump-form");
+const pageJumpInput = document.getElementById("page-jump-input");
+const searchInput = document.getElementById("search");
+const sortSelect = document.getElementById("sort");
+const filterStatusSelect = document.getElementById("filter-status");
+const filterOsSelect = document.getElementById("filter-os");
+const filterGroupSelect = document.getElementById("filter-group");
+const filterWebcamSelect = document.getElementById("filter-webcam");
+const filterCpuInput = document.getElementById("filter-cpu");
+const filterGpuInput = document.getElementById("filter-gpu");
+const filterRamMinInput = document.getElementById("filter-ram-min");
+const filterRamMaxInput = document.getElementById("filter-ram-max");
+const showOfflineToggle = document.getElementById("toggle-offline");
+const displayFieldsMenu = document.getElementById("display-fields-menu");
+const selectAllBtn = document.getElementById("select-all");
+const clearSelectionBtn = document.getElementById("clear-selection");
+const logoutBtn = document.getElementById("logout-btn");
+const usernameDisplay = document.getElementById("username-display");
+const roleBadge = document.getElementById("role-badge");
+const usersLink = document.getElementById("users-link");
+const buildLink = document.getElementById("build-link");
+const deployLink = document.getElementById("deploy-link");
+
+const bulkToolbar = document.getElementById("bulk-toolbar");
+const selectedCountSpan = document.getElementById("selected-count");
+const bulkScreenshotBtn = document.getElementById("bulk-screenshot");
+const bulkDisconnectBtn = document.getElementById("bulk-disconnect");
+const bulkUninstallBtn = document.getElementById("bulk-uninstall");
+const bulkClearBtn = document.getElementById("bulk-clear");
+const bulkGroupBtn = document.getElementById("bulk-group");
+const bulkMuteBtn = document.getElementById("bulk-mute");
+const bulkUnmuteBtn = document.getElementById("bulk-unmute");
+const serverVersionText = document.getElementById("server-version-text");
+const selectedClients = new Set();
+let lastNonOnlineStatus = "all";
+const PREF_FILTER_STATUS_KEY = "goylord_filter_status";
+const PREF_SORT_KEY = "goylord_sort";
+const PREF_FILTER_OS_KEY = "goylord_filter_os";
+const PREF_FILTER_COUNTRY_KEY = "goylord_filter_country";
+const PREF_FILTER_GROUP_KEY = "goylord_filter_group";
+const PREF_FILTER_WEBCAM_KEY = "goylord_filter_webcam";
+const PREF_FILTER_CPU_KEY = "goylord_filter_cpu";
+const PREF_FILTER_GPU_KEY = "goylord_filter_gpu";
+const PREF_FILTER_RAM_MIN_KEY = "goylord_filter_ram_min";
+const PREF_FILTER_RAM_MAX_KEY = "goylord_filter_ram_max";
+const PREF_DISPLAY_FIELDS_KEY = "goylord_display_fields";
+const DEFAULT_DISPLAY_FIELDS = {
+  user: true,
+  ip: true,
+  hwid: false,
+  system: true,
+  version: true,
+  monitors: true,
+  group: true,
+  hardware: true,
+  battery: true,
+};
+let displayFields = { ...DEFAULT_DISPLAY_FIELDS };
+
+let currentUser = null;
+let contextCard = null;
+let availableOsList = new Set();
+let rendererInitialized = false;
+let lastKnownTotalPages = 1;
+let currentServerVersion = "";
+
+window.setDashboardPageBounds = (currentPage, totalPages) => {
+  lastKnownTotalPages = Math.max(1, Number(totalPages) || 1);
+  const safeCurrentPage = Math.max(1, Number(currentPage) || 1);
+  if (pageLabel) pageLabel.textContent = "Page";
+  if (pageTotal) pageTotal.textContent = String(lastKnownTotalPages);
+  if (!pageJumpInput) return;
+  pageJumpInput.max = String(lastKnownTotalPages);
+  pageJumpInput.style.width = `${Math.min(8, Math.max(2, String(lastKnownTotalPages).length, String(safeCurrentPage).length)) + 2}ch`;
+  if (document.activeElement !== pageJumpInput) {
+    pageJumpInput.value = String(safeCurrentPage);
+  }
+};
+
+function setServerVersionLabel(version, tone = "ok") {
+  if (!serverVersionText) return;
+  serverVersionText.textContent = "Server version: ";
+  const value = document.createElement("span");
+  value.className = tone === "bad"
+    ? "server-version-number-mismatch"
+    : tone === "warn"
+      ? "server-version-number-warning"
+      : "server-version-number";
+  value.textContent = version;
+  serverVersionText.appendChild(value);
+}
+
+async function loadServerVersion() {
+  if (!serverVersionText) return;
+  try {
+    const res = await fetch("/api/version", { credentials: "include" });
+    if (!res.ok) {
+      setServerVersionLabel("unavailable", "bad");
+      return;
+    }
+    const payload = await res.json();
+    const version = typeof payload?.version === "string" && payload.version.trim()
+      ? payload.version.trim()
+      : "unknown";
+    currentServerVersion = version;
+    setServerVersionLabel(version, version === "unknown" ? "warn" : "ok");
+    if (rendererInitialized) {
+      state.lastDigest = "";
+      renderCachedClients({ force: true });
+    }
+  } catch {
+    currentServerVersion = "unavailable";
+    setServerVersionLabel("unavailable", "bad");
+  }
+}
+
+const setContext = (id) => {
+  contextCard = id;
+};
+const clearContext = () => {
+  contextCard = null;
+};
+
+let _pluginCache = null;
+let _pluginCacheAge = 0;
+const PLUGIN_CACHE_TTL = 30_000;
+const PLUGIN_CACHE_INVALIDATION_KEY = "goylord_plugin_cache_invalidated_at";
+const pluginDashboardBadges = new Map();
+let pluginDashboardDigest = "";
+let pluginDashboardRefreshInFlight = false;
+
+async function refreshPluginCache() {
+  try {
+    const res = await fetch("/api/plugins");
+    if (!res.ok) return;
+    const data = await res.json();
+    _pluginCache = Array.isArray(data.plugins) ? data.plugins : [];
+    _pluginCacheAge = Date.now();
+  } catch {}
+}
+
+function invalidatePluginCache() {
+  _pluginCache = null;
+  _pluginCacheAge = 0;
+}
+
+function getCachedPlugins() {
+  if (_pluginCache && Date.now() - _pluginCacheAge < PLUGIN_CACHE_TTL) {
+    return _pluginCache;
+  }
+  return null;
+}
+
+function dashboardBadgeHref(href, clientId, pluginId) {
+  const raw = String(href || `/plugins/${encodeURIComponent(pluginId)}?clientId=${encodeURIComponent(clientId)}`);
+  return raw
+    .replaceAll("{clientId}", encodeURIComponent(clientId))
+    .replaceAll("{pluginId}", encodeURIComponent(pluginId));
+}
+
+function getDashboardBadgesForClient(client) {
+  return pluginDashboardBadges.get(client?.id || "") || [];
+}
+
+async function refreshDashboardPluginContributions(items = []) {
+  if (pluginDashboardRefreshInFlight) return;
+  const clientIds = items.map((item) => item?.id).filter(Boolean);
+  if (!clientIds.length) {
+    if (pluginDashboardBadges.size) {
+      pluginDashboardBadges.clear();
+      pluginDashboardDigest = "";
+      renderCachedClients({ force: true, fromPluginDashboard: true });
+    }
+    return;
+  }
+  pluginDashboardRefreshInFlight = true;
+  try {
+    const res = await fetch("/api/plugins/dashboard-contributions", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ clientIds }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const pluginNames = new Map((Array.isArray(data.plugins) ? data.plugins : []).map((p) => [p.id, p.name || p.id]));
+    const next = new Map();
+    for (const row of Array.isArray(data.contributions) ? data.contributions : []) {
+      const clientId = String(row?.clientId || "");
+      const pluginId = String(row?.pluginId || "");
+      if (!clientId || !pluginId || !clientIds.includes(clientId)) continue;
+      const badges = Array.isArray(row.badges) ? row.badges : [];
+      const current = next.get(clientId) || [];
+      for (const badge of badges) {
+        const id = String(badge?.id || pluginId || "plugin");
+        current.push({
+          ...badge,
+          id: `${pluginId}:${id}`,
+          pluginId,
+          pluginName: pluginNames.get(pluginId) || pluginId,
+          href: dashboardBadgeHref(badge?.href, clientId, pluginId),
+        });
+      }
+      next.set(clientId, current);
+    }
+    const nextDigest = JSON.stringify(Array.from(next.entries()).sort(([a], [b]) => a.localeCompare(b)));
+    if (nextDigest === pluginDashboardDigest) return;
+    pluginDashboardDigest = nextDigest;
+    pluginDashboardBadges.clear();
+    for (const [clientId, badges] of next.entries()) pluginDashboardBadges.set(clientId, badges);
+    renderCachedClients({ force: true, fromPluginDashboard: true });
+  } catch {
+    // Dashboard badges are decorative; leave the last known state in place.
+  } finally {
+    pluginDashboardRefreshInFlight = false;
+  }
+}
+
+function detectClientPlatform(clientId) {
+  if (!clientId) {
+    return "unknown";
+  }
+  const selectorId =
+    typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(clientId)
+      : clientId;
+  const card = document.querySelector(`[data-client-row][data-id="${selectorId}"]`);
+function isLinuxOs(val) {
+  if (val.includes("linux")) return true;
+  const linuxDistros = [
+    "ubuntu", "debian", "fedora", "centos", "rhel", "red hat",
+    "rocky", "alma", "manjaro", "arch", "kali", "opensuse", "suse",
+    "raspbian", "raspberry", "nixos", "gentoo", "alpine",
+    "mint", "pop!_os", "pop os", "pop-os", "void", "slackware",
+    "android", "mariner", "cbl", "amzn", "oracle",
+  ];
+  return linuxDistros.some((d) => val.includes(d));
+}
+
+  const os = String(card?.dataset?.os || "").toLowerCase();
+  if (os.includes("windows")) return "windows";
+  if (os.includes("darwin") || os.includes("mac")) return "mac";
+  if (isLinuxOs(os)) return "linux";
+  return "unknown";
+}
+
+function getClientCard(clientId) {
+  if (!clientId) return null;
+  const selectorId =
+    typeof CSS !== "undefined" && typeof CSS.escape === "function"
+      ? CSS.escape(clientId)
+      : clientId;
+  return document.querySelector(`[data-client-row][data-id="${selectorId}"]`);
+}
+
+function macPermissionLabels(keys = []) {
+  const labels = {
+    accessibility: "Accessibility",
+    screenRecording: "Screen Recording",
+    inputMonitoring: "Input Monitoring",
+    fullDiskAccess: "Full Disk Access",
+  };
+  return keys.map((key) => labels[key] || key).join(", ");
+}
+
+async function requestMacPermissions(clientId, permissionKey = "", { refreshOnly = false } = {}) {
+  if (!clientId) return;
+  if (!isClientOnline(clientId)) {
+    await goylordAlert("Client is offline. macOS permissions can only be requested while the client is online.");
+    return;
+  }
+  if (detectClientPlatform(clientId) !== "mac") {
+    await goylordAlert("This permission request is only available for macOS clients.");
+    return;
+  }
+
+  const requested = permissionKey
+    ? [permissionKey]
+    : refreshOnly
+      ? ["accessibility", "screenRecording", "fullDiskAccess"]
+      : ["accessibility", "screenRecording", "inputMonitoring", "fullDiskAccess"];
+  const label = macPermissionLabels(requested) || "macOS permissions";
+  if (!refreshOnly) {
+    const proceed = await goylordConfirm(
+      `Request ${label} from ${clientId}?\n\n` +
+      "This can show a macOS prompt on the target Mac. " +
+      "Full Disk Access must be granted in System Settings; the agent will open the Privacy pane when possible.",
+    );
+    if (!proceed) return;
+  }
+
+  try {
+    const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/command`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "darwin_request_permissions",
+        permissions: requested,
+        refreshOnly,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      await goylordAlert(data.error || "macOS permission request failed.");
+      return;
+    }
+    const missing = Array.isArray(data.missing) ? data.missing : [];
+    const stillMissingRequested = missing.filter((key) => requested.includes(key));
+    if (refreshOnly) {
+      window.showToast?.("macOS permissions refreshed", "success", 2500);
+    } else if (stillMissingRequested.length) {
+      await goylordAlert(`Permission request completed, but still missing: ${macPermissionLabels(stillMissingRequested)}`);
+    } else {
+      await goylordAlert(`${label} is granted.`);
+    }
+    setTimeout(() => loadWithOptions({ force: true }), 300);
+  } catch (err) {
+    await goylordAlert("macOS permission request failed: " + err.message);
+  }
+}
+
+async function applyMacPermissionChanges(clientId) {
+  if (!clientId) return;
+  if (!isClientOnline(clientId)) {
+    await goylordAlert("Client is offline.");
+    return;
+  }
+  const proceed = await goylordConfirm(
+    `Reconnect ${clientId} to apply macOS permission changes?\n\n` +
+    "The client will reconnect and report fresh permission state.",
+  );
+  if (!proceed) return;
+  markManualDisconnect(clientId);
+  const ok = await sendCommand(clientId, "reconnect");
+  if (ok) {
+    window.showToast?.("Reconnect requested", "success", 2500);
+    setTimeout(() => loadWithOptions({ force: true }), 1200);
+  }
+}
+
+window.__uninstallingClientIds = window.__uninstallingClientIds || new Set();
+
+function flipFallAndRemove(clientId, { delayMs = 0 } = {}) {
+  const card = getClientCard(clientId);
+  if (!card || card.classList.contains("card-uninstalling")) return;
+  window.__uninstallingClientIds.add(clientId);
+  if (delayMs > 0) card.style.animationDelay = `${delayMs}ms`;
+  card.classList.add("card-uninstalling");
+
+  let removed = false;
+  const cleanup = () => {
+    if (removed) return;
+    removed = true;
+    card.remove();
+    setTimeout(() => window.__uninstallingClientIds.delete(clientId), 2500);
+  };
+  card.addEventListener("animationend", cleanup, { once: true });
+  setTimeout(cleanup, 1100 + delayMs + 400);
+}
+
+function openTagNoteEditor(clientId, currentTag, currentNote) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className =
+      "fixed inset-0 z-[10001] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4";
+    overlay.innerHTML = `
+      <div class="w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-5 shadow-2xl">
+        <h3 class="text-lg font-semibold text-slate-100">Custom Tag</h3>
+        <p id="tag-editor-client" class="mt-1 text-sm text-slate-400"></p>
+        <label class="mt-4 block text-sm text-slate-300">Tag</label>
+        <input id="tag-editor-input" type="text" class="mt-1 w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600" placeholder="e.g. VIP, Priority, Finance">
+        <label class="mt-4 block text-sm text-slate-300">Note</label>
+        <textarea id="tag-editor-note" class="mt-1 min-h-[220px] w-full rounded-lg border border-slate-600 bg-slate-950 px-3 py-2 text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-600" placeholder="Write as much as you need. No note length limit."></textarea>
+        <div class="mt-4 flex items-center justify-between gap-2">
+          <button id="tag-editor-clear" class="rounded-lg border border-rose-700 bg-rose-900/50 px-3 py-2 text-sm text-rose-100 hover:bg-rose-800">Clear</button>
+          <div class="flex items-center gap-2">
+            <button id="tag-editor-cancel" class="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700">Cancel</button>
+            <button id="tag-editor-save" class="rounded-lg border border-blue-700 bg-blue-700 px-3 py-2 text-sm text-white hover:bg-blue-600">Save</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const clientLabel = overlay.querySelector("#tag-editor-client");
+    if (clientLabel) clientLabel.textContent = clientId;
+    const tagInput = overlay.querySelector("#tag-editor-input");
+    if (tagInput) tagInput.value = currentTag || "";
+    const textarea = overlay.querySelector("#tag-editor-note");
+    textarea.value = currentNote || "";
+
+    const closeWith = (result) => {
+      overlay.remove();
+      resolve(result);
+    };
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) closeWith(null);
+    });
+
+    overlay
+      .querySelector("#tag-editor-cancel")
+      ?.addEventListener("click", () => closeWith(null));
+    overlay
+      .querySelector("#tag-editor-clear")
+      ?.addEventListener("click", () => closeWith({ tag: "", note: "" }));
+    overlay.querySelector("#tag-editor-save")?.addEventListener("click", () => {
+      const tag = String(overlay.querySelector("#tag-editor-input")?.value || "").trim();
+      const note = String(overlay.querySelector("#tag-editor-note")?.value || "");
+      closeWith({ tag, note });
+    });
+
+    document.body.appendChild(overlay);
+    overlay.querySelector("#tag-editor-input")?.focus();
+  });
+}
+
+function isClientOnline(clientId) {
+  return getClientCard(clientId)?.dataset.online === "true";
+}
+
+function applyMenuSupportRules(clientId) {
+  const platform = detectClientPlatform(clientId);
+  const isWindows = platform === "windows";
+  const isOnline = isClientOnline(clientId);
+
+  const setAvailability = (btn, enabled, reason) => {
+    if (!btn) return;
+    btn.disabled = !enabled;
+    btn.setAttribute("aria-disabled", String(!enabled));
+    btn.classList.toggle("opacity-50", !enabled);
+    btn.classList.toggle("cursor-not-allowed", !enabled);
+    btn.classList.toggle("hover:bg-slate-700", enabled);
+    btn.classList.toggle("hover:bg-slate-800/50", !enabled);
+    btn.title = enabled ? "" : reason;
+  };
+
+  const backstageBtn = getMenu().querySelector('[data-open="Backstage"]');
+  setAvailability(backstageBtn, isOnline && isWindows, isOnline ? "Backstage is only supported on Windows clients." : "Client is offline");
+
+  const hiddenBtn = getMenu().querySelector('[data-open="Virtual"]');
+  setAvailability(hiddenBtn, isOnline && isWindows, isOnline ? "Virtual mode is only supported on Windows clients." : "Client is offline");
+
+  const webcamBtn = getMenu().querySelector('[data-open="webcam"]');
+  setAvailability(webcamBtn, isOnline && isWindows, isOnline ? "Webcam viewer is only supported on Windows clients." : "Client is offline");
+
+  const keyloggerBtn = getMenu().querySelector('[data-open="keylogger"]');
+  const keyloggerSupported = isWindows || platform === "mac";
+  setAvailability(
+    keyloggerBtn,
+    keyloggerSupported,
+    "Keylogger is not supported on this platform.",
+  );
+
+  const winreBtn = getMenu().querySelector('[data-open="winre"]');
+  if (winreBtn) {
+    winreBtn.style.display = isWindows ? "" : "none";
+    if (isWindows) {
+      setAvailability(winreBtn, isOnline, "Client is offline");
+    }
+  }
+
+  const elevateBtn = getMenu().querySelector('[data-action="elevate"]');
+  if (elevateBtn) {
+    const canElevate = platform === "mac" || platform === "windows";
+    elevateBtn.style.display = canElevate ? "" : "none";
+    if (canElevate) setAvailability(elevateBtn, isOnline, "Client is offline");
+  }
+
+  setAvailability(getMenu().querySelector('[data-open="console"]'), isOnline, "Client is offline");
+  setAvailability(getMenu().querySelector('[data-open="remotedesktop"]'), isOnline, "Client is offline");
+  setAvailability(getMenu().querySelector('[data-open="voice"]'), isOnline, "Client is offline");
+  setAvailability(getMenu().querySelector('[data-open="processes"]'), isOnline, "Client is offline");
+  setAvailability(getMenu().querySelector('[data-open="files"]'), isOnline, "Client is offline");
+  const silentExecBtn = getMenu().querySelector('[data-open="silent-exec"]');
+  if (silentExecBtn && !silentExecBtn.classList.contains("hidden")) {
+    setAvailability(silentExecBtn, isOnline, "Client is offline");
+  }
+
+  ["remote-access", "system"].forEach(groupId => {
+    setAvailability(getMenu().querySelector(`[data-group-toggle="${groupId}"]`), isOnline, "Client is offline");
+  });
+  setAvailability(
+    getMenu().querySelector('[data-group-toggle="monitoring"]'),
+    isOnline || keyloggerSupported,
+    keyloggerSupported ? "" : "Client is offline",
+  );
+
+  ["ping", "reconnect", "disconnect", "uninstall"].forEach(action => {
+    setAvailability(getMenu().querySelector(`[data-action="${action}"]`), isOnline, "Client is offline");
+  });
+
+  applyFeaturePermissionRules();
+}
+
+const MENU_OPEN_TO_FEATURE = {
+  console: "console",
+  remotedesktop: "remote_desktop",
+  Backstage: "backstage",
+  Hidden: "backstage",
+  webcam: "webcam",
+  files: "file_browser",
+  processes: "processes",
+  keylogger: "keylogger",
+  voice: "voice",
+};
+
+function applyFeaturePermissionRules() {
+  const perms = currentUser?.featurePermissions;
+  if (!perms) return;
+
+  for (const [openKey, feature] of Object.entries(MENU_OPEN_TO_FEATURE)) {
+    const btn = getMenu().querySelector(`[data-open="${openKey}"]`);
+    if (!btn) continue;
+    if (perms[feature] === false) {
+      btn.disabled = true;
+      btn.setAttribute("aria-disabled", "true");
+      btn.classList.add("opacity-50", "cursor-not-allowed");
+      btn.classList.remove("hover:bg-slate-700");
+      btn.classList.add("hover:bg-slate-800/50");
+      btn.title = "Feature access disabled by administrator";
+    }
+  }
+}
+
+async function loadCurrentUser() {
+  loadServerVersion();
+  try {
+    const res = await fetch("/api/auth/me");
+    if (res.ok) {
+      currentUser = await res.json();
+      if (currentUser && currentUser.username && currentUser.role) {
+        if (!usernameDisplay || !roleBadge) {
+          return;
+        }
+        usernameDisplay.textContent = currentUser.username;
+
+        const roleBadges = {
+          admin: '<i class="fa-solid fa-crown mr-1"></i>Admin',
+          operator: '<i class="fa-solid fa-sliders mr-1"></i>Operator',
+          viewer: '<i class="fa-solid fa-eye mr-1"></i>Viewer',
+        };
+        if (roleBadges[currentUser.role]) {
+          roleBadge.innerHTML = roleBadges[currentUser.role];
+        } else {
+          roleBadge.textContent = currentUser.role || "";
+        }
+
+        if (currentUser.role === "admin") {
+          roleBadge.classList.add(
+            "bg-purple-900/50",
+            "text-purple-300",
+            "border",
+            "border-purple-800",
+          );
+        } else if (currentUser.role === "operator") {
+          roleBadge.classList.add(
+            "bg-blue-900/50",
+            "text-blue-300",
+            "border",
+            "border-blue-800",
+          );
+        } else {
+          roleBadge.classList.add(
+            "bg-slate-700",
+            "text-slate-300",
+            "border",
+            "border-slate-600",
+          );
+        }
+
+        if (currentUser.role === "admin") {
+          usersLink?.classList.remove("hidden");
+        }
+
+        if (currentUser.role === "admin" && !localStorage.getItem("goylord_settings_exported")) {
+          localStorage.setItem("goylord_settings_exported", "1");
+          try {
+            const expRes = await fetch("/api/settings/export", { credentials: "include" });
+            if (expRes.ok) {
+              const blob = await expRes.blob();
+              const disposition = expRes.headers.get("Content-Disposition") || "";
+              const match = disposition.match(/filename="?([^"]+)"?/);
+              const filename = match ? match[1] : "goylord-settings.json";
+              const dlUrl = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = dlUrl;
+              a.download = filename;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(dlUrl);
+            }
+          } catch {}
+        }
+
+        if (currentUser.role === "admin" || currentUser.role === "operator" || currentUser.canBuild) {
+          buildLink?.classList.remove("hidden");
+        }
+
+        if (currentUser.role === "admin") {
+          const pluginsLink = document.getElementById("plugins-link");
+          pluginsLink?.classList.remove("hidden");
+          deployLink?.classList.remove("hidden");
+          document.getElementById("menu-silent-exec")?.classList.remove("hidden");
+        }
+
+        const scriptsLink = document.getElementById("scripts-link");
+        if (currentUser.role !== "viewer") {
+          scriptsLink?.classList.remove("hidden");
+        }
+
+        initializeRenderer();
+      }
+
+      initializeRenderer();
+      refreshPluginCache();
+    } else {
+      window.location.href = "/";
+    }
+  } catch (err) {
+    console.error("Failed to load user:", err);
+  }
+}
+
+function showPluginConfirmModal(pluginId, clientId, sigInfo) {
+  document.getElementById("plugin-confirm-modal")?.remove();
+
+  const isSigned = sigInfo && sigInfo.signed && sigInfo.valid;
+  const statusText = isSigned
+    ? `This plugin is signed but the signer's key is not trusted.`
+    : `This plugin is not signed and its origin cannot be verified.`;
+  const fpText = sigInfo?.fingerprint
+    ? `Signer fingerprint: ${sigInfo.fingerprint}`
+    : "No signature present";
+
+  const modal = document.createElement("div");
+  modal.id = "plugin-confirm-modal";
+  modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+  modal.innerHTML = `
+    <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full flex items-center justify-center ${isSigned ? 'bg-yellow-900/60 text-yellow-400' : 'bg-orange-900/60 text-orange-400'}">
+          <i class="fa-solid ${isSigned ? 'fa-shield' : 'fa-shield-halved'} text-lg"></i>
+        </div>
+        <div>
+          <h3 class="font-semibold text-lg">${isSigned ? 'Untrusted Plugin' : 'Unsigned Plugin'}</h3>
+          <p class="text-sm text-slate-400">${pluginId}</p>
+        </div>
+      </div>
+      <p class="text-sm text-slate-300 mb-2">${statusText}</p>
+      <p class="text-xs text-slate-500 font-mono mb-4">${fpText}</p>
+      <p class="text-sm text-slate-300 mb-3">Type <strong class="text-white">confirm</strong> below to load this plugin:</p>
+      <input
+        id="plugin-confirm-input"
+        type="text"
+        placeholder="Type confirm…"
+        autocomplete="off"
+        class="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-100 text-sm placeholder-slate-500 focus:outline-none focus:border-emerald-600 mb-4"
+      />
+      <div class="flex gap-3 justify-end">
+        <button id="plugin-confirm-cancel" class="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800">Cancel</button>
+        <button id="plugin-confirm-load" disabled class="px-4 py-2 rounded-lg bg-emerald-900/40 border border-emerald-700/60 text-emerald-100 opacity-50 cursor-not-allowed">Load Anyway</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const input = document.getElementById("plugin-confirm-input");
+  const loadBtn = document.getElementById("plugin-confirm-load");
+  const cancelBtn = document.getElementById("plugin-confirm-cancel");
+
+  input.addEventListener("input", () => {
+    const match = input.value.trim().toLowerCase() === "confirm";
+    loadBtn.disabled = !match;
+    loadBtn.classList.toggle("opacity-50", !match);
+    loadBtn.classList.toggle("cursor-not-allowed", !match);
+    loadBtn.classList.toggle("hover:bg-emerald-800/60", match);
+  });
+
+  cancelBtn.addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+
+  loadBtn.addEventListener("click", async () => {
+    if (loadBtn.disabled) return;
+    loadBtn.disabled = true;
+    loadBtn.textContent = "Loading…";
+    try {
+      const res = await fetch(`/api/clients/${clientId}/plugins/${pluginId}/load`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmed: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data?.error === "needs_approval_required") {
+          modal.remove();
+          showPluginNeedsModal(pluginId, clientId, data.needs, data.needsHash);
+          return;
+        }
+        await goylordAlert(`Plugin load failed: ${data?.error || res.statusText}`);
+      } else {
+        window.open(`/plugins/${pluginId}?clientId=${clientId}`, "_blank", "noopener");
+      }
+    } catch {
+      await goylordAlert("Plugin load failed");
+    }
+    modal.remove();
+  });
+
+  input.focus();
+}
+
+function escapePluginHtml(value) {
+  const s = String(value);
+  const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return s.replace(/[&<>"']/g, (ch) => map[ch]);
+}
+
+function pluginNeedLines(needs) {
+  const files = Array.isArray(needs?.files) ? needs.files : [];
+  return files.map((need) => {
+    const access = Array.isArray(need.access) ? need.access.join(", ") : "";
+    const reason = need.reason ? ` - ${need.reason}` : "";
+    return `${need.bucket}: ${access}${reason}`;
+  });
+}
+
+function showPluginNeedsModal(pluginId, clientId, needs, needsHash) {
+  document.getElementById("plugin-needs-modal")?.remove();
+  const lines = pluginNeedLines(needs);
+  const modal = document.createElement("div");
+  modal.id = "plugin-needs-modal";
+  modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm";
+  modal.innerHTML = `
+    <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-lg w-full mx-4 p-6">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-10 h-10 rounded-full flex items-center justify-center bg-amber-900/60 text-amber-300">
+          <i class="fa-solid fa-key text-lg"></i>
+        </div>
+        <div>
+          <h3 class="font-semibold text-lg">Approve Plugin Needs</h3>
+          <p class="text-sm text-slate-400">${escapePluginHtml(pluginId)}</p>
+        </div>
+      </div>
+      <p class="text-sm text-slate-300 mb-3">This plugin declares filesystem bridges that must be approved before loading.</p>
+      <div class="rounded-lg border border-slate-700 bg-slate-950/70 p-3 mb-3 space-y-2">
+        ${lines.length ? lines.map((line) => `<div class="text-xs font-mono text-slate-300">${escapePluginHtml(line)}</div>`).join("") : '<div class="text-sm text-slate-400">No filesystem needs declared.</div>'}
+      </div>
+      ${needsHash ? `<p class="text-xs text-slate-500 font-mono mb-4">Needs hash: ${escapePluginHtml(needsHash.slice(0, 16))}...</p>` : ""}
+      <div class="flex gap-3 justify-end">
+        <button id="plugin-needs-cancel" class="px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800">Cancel</button>
+        <button id="plugin-needs-approve" class="px-4 py-2 rounded-lg bg-amber-900/40 border border-amber-700/60 text-amber-100 hover:bg-amber-800/60">Approve and Load</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  document.getElementById("plugin-needs-cancel")?.addEventListener("click", () => modal.remove());
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  document.getElementById("plugin-needs-approve")?.addEventListener("click", async () => {
+    const approveBtn = document.getElementById("plugin-needs-approve");
+    approveBtn.disabled = true;
+    approveBtn.textContent = "Approving...";
+    const approve = await fetch(`/api/plugins/${pluginId}/needs/approve`, { method: "POST" });
+    if (!approve.ok) {
+      await goylordAlert("Needs approval failed");
+      modal.remove();
+      return;
+    }
+    const res = await fetch(`/api/clients/${clientId}/plugins/${pluginId}/load`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      await goylordAlert(`Plugin load failed: ${data?.error || res.statusText}`);
+    } else {
+      window.open(`/plugins/${pluginId}?clientId=${clientId}`, "_blank", "noopener");
+    }
+    modal.remove();
+  });
+}
+
+function renderPluginMenu(plugins) {
+  const section = document.getElementById("plugin-section");
+  const container = document.getElementById("plugin-menu");
+  if (!section || !container) return;
+  container.innerHTML = "";
+
+  const enabled = plugins.filter(p => p.enabled !== false);
+  if (!enabled.length) {
+    section.classList.add("hidden");
+    return;
+  }
+
+  section.classList.remove("hidden");
+  for (const plugin of enabled) {
+    const btn = document.createElement("button");
+    btn.className = "ctx-item ctx-plugin-item";
+    btn.dataset.plugin = plugin.id;
+    btn.dataset.loaded = plugin.loaded ? "true" : "false";
+    if (plugin.lastError) {
+      btn.title = `Last error: ${plugin.lastError}`;
+    }
+
+    const sig = plugin.signature;
+    if (sig && sig.signed && !sig.valid) {
+      btn.disabled = true;
+      btn.setAttribute("aria-disabled", "true");
+      btn.title = "Plugin signature is invalid — cannot load";
+    }
+
+    const labelIcon = document.createElement("i");
+    labelIcon.className =
+      "fa-solid fa-puzzle-piece ctx-icon " +
+      (plugin.loaded ? "text-emerald-400" : "text-fuchsia-400");
+    btn.appendChild(labelIcon);
+
+    const label = document.createElement("span");
+    label.className = "ctx-plugin-label";
+    label.textContent = plugin.name || plugin.id;
+    btn.appendChild(label);
+
+    if (sig) {
+      const trustIcon = document.createElement("i");
+      if (sig.signed && !sig.valid) {
+        trustIcon.className = "fa-solid fa-shield-xmark ctx-plugin-trust text-red-400";
+        trustIcon.title = "Invalid signature";
+      } else if (sig.signed && sig.valid && sig.trusted) {
+        trustIcon.className = "fa-solid fa-shield-check ctx-plugin-trust text-emerald-400";
+        trustIcon.title = "Trusted";
+      } else if (sig.signed && sig.valid && !sig.trusted) {
+        trustIcon.className = "fa-solid fa-shield ctx-plugin-trust text-yellow-400";
+        trustIcon.title = "Signed but untrusted";
+      } else {
+        trustIcon.className = "fa-solid fa-shield-halved ctx-plugin-trust text-orange-400";
+        trustIcon.title = "Unsigned";
+      }
+      btn.appendChild(trustIcon);
+    }
+
+    const badge = document.createElement("span");
+    badge.className = "ctx-plugin-badge" + (plugin.loaded ? " is-loaded" : "");
+    badge.textContent = plugin.loaded ? "loaded" : "available";
+    btn.appendChild(badge);
+    container.appendChild(btn);
+
+    if (plugin.loaded) {
+      const unloadBtn = document.createElement("button");
+      unloadBtn.className = "ctx-item";
+      unloadBtn.dataset.pluginUnload = plugin.id;
+      const unloadIcon = document.createElement("i");
+      unloadIcon.className = "fa-solid fa-plug-circle-xmark ctx-icon text-red-400";
+      unloadBtn.appendChild(unloadIcon);
+      const unloadText = document.createElement("span");
+      unloadText.textContent = `Unload ${plugin.name || plugin.id}`;
+      unloadBtn.appendChild(unloadText);
+      container.appendChild(unloadBtn);
+    }
+  }
+}
+
+function renderScriptMenu(scripts) {
+  const section = document.getElementById("script-section");
+  const container = document.getElementById("script-menu");
+  if (!section || !container) return;
+  container.innerHTML = "";
+
+  if (!Array.isArray(scripts) || scripts.length === 0) {
+    section.classList.add("hidden");
+    return;
+  }
+
+  section.classList.remove("hidden");
+  const sorted = scripts.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  for (const script of sorted) {
+    const btn = document.createElement("button");
+    btn.className = "ctx-item ctx-plugin-item";
+    btn.dataset.scriptId = script.id;
+    btn.title = `${script.scriptType} — click to open in Scripts with this client preselected`;
+
+    const labelIcon = document.createElement("i");
+    labelIcon.className = "fa-solid fa-scroll ctx-icon text-cyan-400";
+    btn.appendChild(labelIcon);
+
+    const label = document.createElement("span");
+    label.className = "ctx-plugin-label";
+    label.textContent = script.name || script.id;
+    btn.appendChild(label);
+
+    const badge = document.createElement("span");
+    badge.className = "ctx-plugin-badge";
+    badge.textContent = script.scriptType || "";
+    btn.appendChild(badge);
+
+    container.appendChild(btn);
+  }
+}
+
+let _scriptMenuCache = null;
+async function loadSavedScriptsForMenu() {
+  const section = document.getElementById("script-section");
+  const container = document.getElementById("script-menu");
+  if (!section || !container) return;
+
+  if (_scriptMenuCache) renderScriptMenu(_scriptMenuCache);
+
+  try {
+    const res = await fetch("/api/saved-scripts");
+    if (!res.ok) return;
+    const data = await res.json();
+    const scripts = Array.isArray(data.items) ? data.items : [];
+    _scriptMenuCache = scripts;
+    renderScriptMenu(scripts);
+  } catch {
+    // ignore — cached render (if any) is already showing
+  }
+}
+
+async function loadPluginsForClient(clientId) {
+  const section = document.getElementById("plugin-section");
+  const container = document.getElementById("plugin-menu");
+  if (!section || !container) return;
+  container.innerHTML = "";
+  section.classList.add("hidden");
+
+  const cached = getCachedPlugins();
+  if (cached && cached.length) {
+    renderPluginMenu(cached);
+  }
+
+  try {
+    const res = await fetch(`/api/clients/${clientId}/plugins`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+    renderPluginMenu(plugins);
+  } catch {
+    // ignore — cache render is already showing
+  }
+}
+
+window.addEventListener("storage", (event) => {
+  if (event.key !== PLUGIN_CACHE_INVALIDATION_KEY) return;
+  invalidatePluginCache();
+});
+
+window.addEventListener("goylord:plugins-changed", () => {
+  invalidatePluginCache();
+});
+
+const PREF_LAYOUT_KEY = "goylord_layout";
+let rendererSetLayout = null;
+
+function applyLayoutToggleUI(layout) {
+  document.querySelectorAll("#layout-toggle .layout-toggle-btn").forEach((btn) => {
+    const active = btn.dataset.layout === layout;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
+}
+
+function setLayout(layout) {
+  const next = ["rows", "table", "cards"].includes(layout) ? layout : "rows";
+  localStorage.setItem(PREF_LAYOUT_KEY, next);
+  applyLayoutToggleUI(next);
+  if (rendererSetLayout) rendererSetLayout(next);
+  state.lastDigest = "";
+  if (!renderCachedClients({ reorder: true, force: true })) {
+    loadWithOptions({ force: true, reorder: true });
+  }
+}
+
+document.querySelectorAll("#layout-toggle .layout-toggle-btn").forEach((btn) => {
+  btn.addEventListener("click", () => setLayout(btn.dataset.layout));
+});
+
+function loadDisplayFields() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(PREF_DISPLAY_FIELDS_KEY) || "null");
+    if (saved && typeof saved === "object") {
+      displayFields = { ...DEFAULT_DISPLAY_FIELDS, ...saved };
+    }
+  } catch {
+    displayFields = { ...DEFAULT_DISPLAY_FIELDS };
+  }
+}
+
+function syncDisplayFieldInputs() {
+  displayFieldsMenu?.querySelectorAll("input[data-field]").forEach((input) => {
+    input.checked = displayFields[input.dataset.field] !== false;
+  });
+}
+
+function saveDisplayFields() {
+  localStorage.setItem(PREF_DISPLAY_FIELDS_KEY, JSON.stringify(displayFields));
+}
+
+function rerenderDisplayFields() {
+  state.lastDigest = "";
+  if (!renderCachedClients({ reorder: true, force: true })) {
+    loadWithOptions({ force: true, reorder: true });
+  }
+}
+
+loadDisplayFields();
+syncDisplayFieldInputs();
+
+displayFieldsMenu?.addEventListener("change", (e) => {
+  const input = e.target.closest("input[data-field]");
+  if (!input) return;
+  displayFields[input.dataset.field] = input.checked;
+  saveDisplayFields();
+  rerenderDisplayFields();
+});
+
+document.addEventListener("click", (e) => {
+  document.querySelectorAll(".dashboard-menu[open]").forEach((details) => {
+    if (!details.contains(e.target)) details.removeAttribute("open");
+  });
+});
+
+document.querySelectorAll(".dashboard-menu").forEach((details) => {
+  details.addEventListener("toggle", () => {
+    if (!details.open) return;
+    document.querySelectorAll(".dashboard-menu[open]").forEach((other) => {
+      if (other !== details) other.removeAttribute("open");
+    });
+  });
+});
+
+let dashboardThumbnailLoader = null;
+
+function refreshDashboardThumbnail(clientId) {
+  if (dashboardThumbnailLoader?.refreshNow(clientId)) {
+    return;
+  }
+  // The loader initializes asynchronously; preserve manual refreshes made
+  // before it is ready.
+  requestThumbnail(clientId);
+}
+
+async function isDashboardThumbnailEnabled() {
+  try {
+    const res = await fetch("/api/settings/thumbnails", { credentials: "include" });
+    if (!res.ok) return true;
+    const data = await res.json();
+    return data?.thumbnails?.dashboardEnabled !== false;
+  } catch {
+    return true;
+  }
+}
+
+async function setupDashboardThumbnailLoader() {
+  if (!grid || dashboardThumbnailLoader) return;
+
+  if (!(await isDashboardThumbnailEnabled())) return;
+
+  const stored = Number(localStorage.getItem("goylord_dash_thumb_interval_ms"));
+  const refreshIntervalMs = Number.isFinite(stored) && stored >= 2000 ? stored : 15_000;
+
+  dashboardThumbnailLoader = new ThumbnailLoader({
+    refreshIntervalMs,
+    rootMargin: "300px",
+    threshold: 0.05,
+  });
+
+  const wire = (el) => {
+    const id = el.dataset.thumbClient;
+    if (!id) return;
+    if (el.dataset.thumbOnline !== "1") return;
+    const v = Number(el.dataset.thumbVersion) || 0;
+    dashboardThumbnailLoader.observe(el, id, v);
+  };
+  const unwire = (el) => dashboardThumbnailLoader.unobserve(el);
+
+  const mo = new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      m.addedNodes.forEach((n) => {
+        if (!(n instanceof HTMLElement)) return;
+        if (n.matches?.("[data-thumb-host]")) wire(n);
+        n.querySelectorAll?.("[data-thumb-host]").forEach(wire);
+      });
+      m.removedNodes.forEach((n) => {
+        if (!(n instanceof HTMLElement)) return;
+        if (n.matches?.("[data-thumb-host]")) unwire(n);
+        n.querySelectorAll?.("[data-thumb-host]").forEach(unwire);
+      });
+    }
+  });
+  mo.observe(grid, { childList: true, subtree: true });
+  grid.querySelectorAll("[data-thumb-host]").forEach(wire);
+}
+
+function initializeRenderer() {
+  if (rendererInitialized) return;
+  rendererInitialized = true;
+  const savedLayout = localStorage.getItem(PREF_LAYOUT_KEY) || "rows";
+  if (grid) grid.dataset.layout = ["rows", "table", "cards"].includes(savedLayout) ? savedLayout : "rows";
+  applyLayoutToggleUI(grid?.dataset.layout || "rows");
+
+  const { renderMerge, setLayout: rSetLayout } = createRenderer({
+    grid,
+    totalPill,
+    pageLabel,
+    openMenu: (id, x, y) => {
+      applyMenuSupportRules(id);
+      const card = getClientCard(id);
+      const notificationsMuted = card?.dataset.notificationsMuted === "true";
+      openMenu(id, x, y, setContext, { isOnline: isClientOnline(id), notificationsMuted });
+      loadPluginsForClient(id);
+      loadSavedScriptsForMenu();
+    },
+    openModal,
+    requestPreview,
+    requestThumbnail: refreshDashboardThumbnail,
+    pingClient: pingClientNow,
+    onOpenWebcam: (id) => window.open(`/webcam?clientId=${encodeURIComponent(id)}`, "_blank", "noopener"),
+    onMacPermissionRequest: (id, _card, permissionKey) => requestMacPermissions(id, permissionKey),
+    onMacPermissionRefresh: (id) => requestMacPermissions(id, "", { refreshOnly: true }),
+    onMacPermissionApply: (id) => applyMacPermissionChanges(id),
+    userRole: currentUser?.role,
+    getServerVersion: () => currentServerVersion,
+    getDisplayFields: () => displayFields,
+    getDashboardBadges: getDashboardBadgesForClient,
+  });
+  rendererSetLayout = rSetLayout;
+  registerRenderer((data, options) => {
+    renderMerge(data, options);
+    if (isUnfilteredClientView()) {
+      updateDashboardStatsFromClients(data);
+    }
+    if (!options?.fromPluginDashboard) {
+      refreshDashboardPluginContributions(data?.items || []);
+    }
+  });
+  initDashboardStats();
+  renderCachedClients({ reorder: true, force: true });
+  setupDashboardThumbnailLoader();
+  refreshGroupFilter();
+  loadWithOptions();
+  startAutoRefresh();
+
+  if (typeof anime !== "undefined" && !document.documentElement.classList.contains("large-client-set")) {
+    anime
+      .timeline({ easing: "easeOutQuad" })
+      .add({
+        targets: "main > div > div:first-child",
+        opacity: [0, 1],
+        translateY: [15, 0],
+        duration: 500,
+      })
+      .add(
+        {
+          targets: "main > div > div:nth-child(2)",
+          opacity: [0, 1],
+          translateY: [15, 0],
+          duration: 500,
+        },
+        "-=350",
+      );
+  }
+}
+
+function isUnfilteredClientView() {
+  return !state.searchTerm &&
+    (state.filterStatus || "all") === "all" &&
+    (state.filterOs || "all") === "all" &&
+    (state.filterCountry || "all") === "all" &&
+    (state.filterGroup || "all") === "all" &&
+    (state.filterWebcam || "all") === "all" &&
+    !state.filterCpu && !state.filterGpu && !state.filterRamMin && !state.filterRamMax;
+}
+
+if (logoutBtn && !logoutBtn.dataset.boundLogout) {
+  logoutBtn.dataset.boundLogout = "true";
+  logoutBtn.addEventListener("click", async () => {
+  if (!(await goylordConfirm("Are you sure you want to logout?"))) return;
+
+  try {
+    const res = await fetch("/api/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (res.ok) {
+      window.location.href = "/";
+    } else {
+      await goylordAlert("Logout failed. Please try again.");
+    }
+  } catch (err) {
+    console.error("Logout error:", err);
+    await goylordAlert("Logout failed. Please try again.");
+  }
+  });
+}
+
+wireModalClose();
+
+const debouncedSearch = debounce(() => {
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+}, 200);
+
+searchInput?.addEventListener("input", (e) => {
+  state.searchTerm = e.target.value;
+  debouncedSearch();
+});
+
+sortSelect?.addEventListener("change", (e) => {
+  state.sort = e.target.value;
+  localStorage.setItem(PREF_SORT_KEY, state.sort);
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+filterStatusSelect?.addEventListener("change", (e) => {
+  state.filterStatus = e.target.value;
+  localStorage.setItem(PREF_FILTER_STATUS_KEY, state.filterStatus);
+  if (state.filterStatus === "online") {
+    if (showOfflineToggle) showOfflineToggle.checked = false;
+  } else {
+    lastNonOnlineStatus = state.filterStatus;
+    if (showOfflineToggle) showOfflineToggle.checked = true;
+  }
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+filterOsSelect?.addEventListener("change", (e) => {
+  state.filterOs = e.target.value;
+  localStorage.setItem(PREF_FILTER_OS_KEY, state.filterOs);
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+filterGroupSelect?.addEventListener("change", (e) => {
+  state.filterGroup = e.target.value;
+  localStorage.setItem(PREF_FILTER_GROUP_KEY, state.filterGroup);
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+filterWebcamSelect?.addEventListener("change", (e) => {
+  state.filterWebcam = e.target.value;
+  localStorage.setItem(PREF_FILTER_WEBCAM_KEY, state.filterWebcam);
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+let hwDebounce = null;
+function setupHwSelect(select, stateKey, storageKey) {
+  if (!select) return;
+  select.addEventListener("change", () => {
+    const val = select.value === "all" ? "" : select.value;
+    state[stateKey] = val;
+    localStorage.setItem(storageKey, select.value);
+    state.page = 1;
+    state.lastDigest = "";
+    loadWithOptions({ force: true, reorder: true });
+  });
+}
+function setupHwInput(input, stateKey, storageKey) {
+  if (!input) return;
+  input.addEventListener("input", () => {
+    state[stateKey] = input.value;
+    localStorage.setItem(storageKey, input.value);
+    clearTimeout(hwDebounce);
+    hwDebounce = setTimeout(() => {
+      state.page = 1;
+      state.lastDigest = "";
+      loadWithOptions({ force: true, reorder: true });
+    }, 400);
+  });
+}
+setupHwSelect(filterCpuInput, "filterCpu", PREF_FILTER_CPU_KEY);
+setupHwSelect(filterGpuInput, "filterGpu", PREF_FILTER_GPU_KEY);
+setupHwInput(filterRamMinInput, "filterRamMin", PREF_FILTER_RAM_MIN_KEY);
+setupHwInput(filterRamMaxInput, "filterRamMax", PREF_FILTER_RAM_MAX_KEY);
+
+async function loadHardwareOptions() {
+  try {
+    const res = await fetch("/api/clients/hardware-options", { credentials: "include" });
+    if (!res.ok) return;
+    const data = await res.json();
+    const savedCpu = localStorage.getItem(PREF_FILTER_CPU_KEY) || "all";
+    const savedGpu = localStorage.getItem(PREF_FILTER_GPU_KEY) || "all";
+
+    if (filterCpuInput && Array.isArray(data.cpus)) {
+      filterCpuInput.innerHTML = '<option value="all">All CPUs</option>';
+      for (const cpu of data.cpus) {
+        const opt = document.createElement("option");
+        opt.value = cpu;
+        opt.textContent = cpu;
+        filterCpuInput.appendChild(opt);
+      }
+      filterCpuInput.value = savedCpu;
+      if (filterCpuInput.value !== savedCpu) filterCpuInput.value = "all";
+      state.filterCpu = filterCpuInput.value === "all" ? "" : filterCpuInput.value;
+    }
+    if (filterGpuInput && Array.isArray(data.gpus)) {
+      filterGpuInput.innerHTML = '<option value="all">All GPUs</option>';
+      for (const gpu of data.gpus) {
+        const opt = document.createElement("option");
+        opt.value = gpu;
+        opt.textContent = gpu;
+        filterGpuInput.appendChild(opt);
+      }
+      filterGpuInput.value = savedGpu;
+      if (filterGpuInput.value !== savedGpu) filterGpuInput.value = "all";
+      state.filterGpu = filterGpuInput.value === "all" ? "" : filterGpuInput.value;
+    }
+  } catch (err) {
+    console.error("Failed to load hardware options:", err);
+  }
+}
+loadHardwareOptions();
+
+import("./country-picker.js").then(({ initCountryPicker }) => {
+  initCountryPicker((code) => {
+    state.filterCountry = code;
+    localStorage.setItem(PREF_FILTER_COUNTRY_KEY, code);
+    state.page = 1;
+    state.lastDigest = "";
+    loadWithOptions({ force: true, reorder: true });
+  }, localStorage.getItem(PREF_FILTER_COUNTRY_KEY) || "all");
+});
+
+(function restoreFilterStatus() {
+  const savedStatus = localStorage.getItem(PREF_FILTER_STATUS_KEY);
+  const validStatuses = ["all", "online", "offline"];
+  if (savedStatus && validStatuses.includes(savedStatus)) {
+    state.filterStatus = savedStatus;
+    if (filterStatusSelect) filterStatusSelect.value = savedStatus;
+    if (showOfflineToggle) showOfflineToggle.checked = savedStatus !== "online";
+    if (savedStatus !== "online") lastNonOnlineStatus = savedStatus;
+  }
+
+  const savedSort = localStorage.getItem(PREF_SORT_KEY);
+  const validSorts = ["stable", "last_seen_desc", "host_asc", "ping_asc", "ping_desc", "country_asc", "country_desc", "group_asc", "group_desc", "admin_first", "elevated_first"];
+  if (savedSort && validSorts.includes(savedSort)) {
+    state.sort = savedSort;
+    if (sortSelect) sortSelect.value = savedSort;
+  }
+
+  const savedOs = localStorage.getItem(PREF_FILTER_OS_KEY);
+  if (savedOs) {
+    state.filterOs = savedOs;
+    if (filterOsSelect) filterOsSelect.value = savedOs;
+  }
+
+  const savedCountry = localStorage.getItem(PREF_FILTER_COUNTRY_KEY);
+  if (savedCountry) {
+    state.filterCountry = savedCountry;
+  }
+
+  const savedGroup = localStorage.getItem(PREF_FILTER_GROUP_KEY);
+  if (savedGroup) {
+    state.filterGroup = savedGroup;
+    if (filterGroupSelect) filterGroupSelect.value = savedGroup;
+  }
+
+  const savedWebcam = localStorage.getItem(PREF_FILTER_WEBCAM_KEY);
+  if (savedWebcam && ["all", "available", "none"].includes(savedWebcam)) {
+    state.filterWebcam = savedWebcam;
+    if (filterWebcamSelect) filterWebcamSelect.value = savedWebcam;
+  }
+
+  const savedCpu = localStorage.getItem(PREF_FILTER_CPU_KEY);
+  if (savedCpu) {
+    state.filterCpu = savedCpu;
+    if (filterCpuInput) filterCpuInput.value = savedCpu;
+  }
+  const savedGpu = localStorage.getItem(PREF_FILTER_GPU_KEY);
+  if (savedGpu) {
+    state.filterGpu = savedGpu;
+    if (filterGpuInput) filterGpuInput.value = savedGpu;
+  }
+  const savedRamMin = localStorage.getItem(PREF_FILTER_RAM_MIN_KEY);
+  if (savedRamMin) {
+    state.filterRamMin = savedRamMin;
+    if (filterRamMinInput) filterRamMinInput.value = savedRamMin;
+  }
+  const savedRamMax = localStorage.getItem(PREF_FILTER_RAM_MAX_KEY);
+  if (savedRamMax) {
+    state.filterRamMax = savedRamMax;
+    if (filterRamMaxInput) filterRamMaxInput.value = savedRamMax;
+  }
+})();
+
+showOfflineToggle?.addEventListener("change", (e) => {
+  if (e.target.checked) {
+    state.filterStatus = lastNonOnlineStatus || "all";
+  } else {
+    if (state.filterStatus !== "online") {
+      lastNonOnlineStatus = state.filterStatus;
+    }
+    state.filterStatus = "online";
+  }
+  localStorage.setItem(PREF_FILTER_STATUS_KEY, state.filterStatus);
+  if (filterStatusSelect) {
+    filterStatusSelect.value = state.filterStatus;
+  }
+  state.page = 1;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+function updateBulkToolbar() {
+  selectedCountSpan.textContent = selectedClients.size;
+  if (selectedClients.size > 0) {
+    bulkToolbar?.classList.remove("hidden");
+  } else {
+    bulkToolbar?.classList.add("hidden");
+  }
+}
+
+function toggleClientSelection(clientId) {
+  const checkbox = document.querySelector(
+    `.client-checkbox[data-id="${clientId}"]`,
+  );
+  if (!checkbox) return;
+
+  if (checkbox.checked) {
+    selectedClients.add(clientId);
+  } else {
+    selectedClients.delete(clientId);
+  }
+  updateBulkToolbar();
+}
+
+function syncSelectionState() {
+  document.querySelectorAll(".client-checkbox").forEach((cb) => {
+    const id = cb.dataset.id;
+    if (!id) return;
+    cb.checked = selectedClients.has(id);
+  });
+  updateBulkToolbar();
+}
+
+bulkClearBtn?.addEventListener("click", () => {
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+});
+
+clearSelectionBtn?.addEventListener("click", () => {
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+});
+
+selectAllBtn?.addEventListener("click", () => {
+  document
+    .querySelectorAll(".client-checkbox:not(:disabled)")
+    .forEach((cb) => {
+      cb.checked = true;
+      if (cb.dataset.id) {
+        selectedClients.add(cb.dataset.id);
+      }
+    });
+  updateBulkToolbar();
+});
+
+bulkScreenshotBtn?.addEventListener("click", async () => {
+  if (!(await goylordConfirm(`Take screenshot on ${selectedClients.size} client(s)?`))) return;
+
+  let success = 0;
+  for (const clientId of selectedClients) {
+    const ok = await sendCommand(clientId, "screenshot");
+    if (ok) success++;
+  }
+
+  await goylordAlert(`Screenshots sent to ${success}/${selectedClients.size} clients`);
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+  setTimeout(() => loadWithOptions({ force: true }), 400);
+});
+
+bulkDisconnectBtn?.addEventListener("click", async () => {
+  if (
+    !(await goylordConfirm(
+      `Disconnect ${selectedClients.size} client(s)? This will close their connections.`,
+    ))
+  )
+    return;
+
+  let success = 0;
+  for (const clientId of selectedClients) {
+    markManualDisconnect(clientId);
+    const ok = await sendCommand(clientId, "disconnect");
+    if (ok) success++;
+  }
+
+  await goylordAlert(`Disconnected ${success}/${selectedClients.size} clients`);
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+  setTimeout(() => loadWithOptions({ force: true }), 1000);
+});
+
+bulkUninstallBtn?.addEventListener("click", async () => {
+  if (
+    !(await goylordConfirm(
+      `Uninstall agent from ${selectedClients.size} client(s)?\n\nThis will remove all persistence mechanisms and terminate the agents. This action cannot be undone.`,
+    ))
+  )
+    return;
+
+  let success = 0;
+  for (const clientId of selectedClients) {
+    const ok = await sendCommand(clientId, "uninstall");
+    if (ok) success++;
+  }
+
+  await goylordAlert(`Uninstall sent to ${success}/${selectedClients.size} clients`);
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+  setTimeout(() => loadWithOptions({ force: true }), 1000);
+});
+
+bulkGroupBtn?.addEventListener("click", () => {
+  if (selectedClients.size === 0) return;
+  openBulkGroupPicker([...selectedClients]);
+});
+
+async function bulkSetMuted(muted) {
+  if (selectedClients.size === 0) return;
+  const ids = [...selectedClients];
+  try {
+    const res = await fetch("/api/clients/bulk-notifications-muted", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientIds: ids, muted }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to update notifications mute state");
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    const action = muted ? "Muted" : "Unmuted";
+    await goylordAlert(`${action} notifications for ${data.updated ?? 0}/${ids.length} clients`);
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to update notifications mute state");
+    return;
+  }
+  selectedClients.clear();
+  document
+    .querySelectorAll(".client-checkbox")
+    .forEach((cb) => (cb.checked = false));
+  updateBulkToolbar();
+  setTimeout(() => loadWithOptions({ force: true }), 200);
+}
+
+bulkMuteBtn?.addEventListener("click", () => bulkSetMuted(true));
+bulkUnmuteBtn?.addEventListener("click", () => bulkSetMuted(false));
+
+async function openBulkGroupPicker(clientIds) {
+  const groups = await loadGroups();
+
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60";
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const modal = document.createElement("div");
+  modal.className = "bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6 w-[400px] max-h-[80vh] flex flex-col gap-4";
+  modal.innerHTML = `
+    <h3 class="text-lg font-semibold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-layer-group text-blue-400"></i> Set Group for ${clientIds.length} client(s)</h3>
+    <div class="bulk-group-list flex flex-col gap-1 overflow-y-auto max-h-60"></div>
+    <div class="border-t border-slate-700 pt-3">
+      <p class="text-xs text-slate-400 mb-2">Create new group</p>
+      <div class="flex gap-2">
+        <input type="text" class="group-new-name flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500" placeholder="Group name" maxlength="64" />
+        <input type="color" class="group-new-color w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer" value="#3b82f6" />
+        <button class="group-create-btn px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium">Create</button>
+      </div>
+    </div>
+  `;
+
+  const listEl = modal.querySelector(".bulk-group-list");
+
+  async function applyGroup(groupId) {
+    overlay.remove();
+    try {
+      const res = await fetch("/api/clients/bulk-group", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientIds, groupId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        await goylordAlert(d.error || "Failed to set group");
+        return;
+      }
+    } catch (err) {
+      console.error(err);
+      await goylordAlert("Failed to set group");
+      return;
+    }
+    selectedClients.clear();
+    document.querySelectorAll(".client-checkbox").forEach((cb) => (cb.checked = false));
+    updateBulkToolbar();
+    refreshGroupFilter();
+    setTimeout(() => loadWithOptions({ force: true }), 200);
+  }
+
+  function renderList() {
+    listEl.innerHTML = "";
+    const noneBtn = document.createElement("button");
+    noneBtn.className = "w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors text-slate-300 hover:bg-slate-800";
+    noneBtn.innerHTML = '<i class="fa-solid fa-xmark text-slate-500"></i> No Group';
+    noneBtn.addEventListener("click", () => applyGroup(null));
+    listEl.appendChild(noneBtn);
+
+    groups.forEach((g) => {
+      const btn = document.createElement("button");
+      btn.className = "w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors text-slate-300 hover:bg-slate-800";
+      btn.innerHTML = `<span class="inline-block w-3 h-3 rounded-full flex-shrink-0" style="background:${g.color}"></span> ${escapeHtml(g.name)}`;
+      btn.addEventListener("click", () => applyGroup(g.id));
+      listEl.appendChild(btn);
+    });
+  }
+
+  renderList();
+
+  const createBtn = modal.querySelector(".group-create-btn");
+  createBtn.addEventListener("click", async () => {
+    const nameInput = modal.querySelector(".group-new-name");
+    const colorInput = modal.querySelector(".group-new-color");
+    const name = nameInput.value.trim();
+    const color = colorInput.value;
+    if (!name) { nameInput.focus(); return; }
+    try {
+      const res = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, color }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        await goylordAlert(d.error || "Failed to create group");
+        return;
+      }
+      const newGroup = await res.json();
+      groups.push(newGroup);
+      nameInput.value = "";
+      renderList();
+      refreshGroupFilter();
+    } catch (err) {
+      console.error(err);
+      await goylordAlert("Failed to create group");
+    }
+  });
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  modal.querySelector(".group-new-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") createBtn.click();
+  });
+}
+
+window.toggleClientSelection = toggleClientSelection;
+window.isClientSelected = (clientId) => selectedClients.has(clientId);
+window.syncClientSelection = syncSelectionState;
+window.removeClientFromDashboard = async (clientId) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to remove client from dashboard");
+      return false;
+    }
+    selectedClients.delete(clientId);
+    return true;
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to remove client from dashboard");
+    return false;
+  }
+};
+
+window.setClientNickname = async (clientId, nickname) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/nickname`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nickname: nickname || "" }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to update client nickname");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to update client nickname");
+    return false;
+  }
+};
+
+window.setClientTag = async (clientId, tag, note) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/tag`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tag: tag || "", note: note ?? "" }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to update custom tag");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to update custom tag");
+    return false;
+  }
+};
+
+window.setClientNotificationsMuted = async (clientId, muted) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/notifications-muted`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ muted: !!muted }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to update notification mute state");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to update notification mute state");
+    return false;
+  }
+};
+
+window.setClientGroup = async (clientId, groupId) => {
+  if (!clientId) return false;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/group`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ groupId }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to update client group");
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to update client group");
+    return false;
+  }
+};
+
+async function loadGroups() {
+  try {
+    const res = await fetch("/api/groups");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.groups || [];
+  } catch { return []; }
+}
+
+async function refreshGroupFilter() {
+  const groups = await loadGroups();
+  if (!filterGroupSelect) return groups;
+  const current = filterGroupSelect.value;
+  filterGroupSelect.innerHTML = '<option value="all">All Groups</option><option value="none">No Group</option>';
+  groups.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = String(g.id);
+    opt.textContent = g.name;
+    opt.style.color = g.color;
+    filterGroupSelect.appendChild(opt);
+  });
+  filterGroupSelect.value = current;
+  return groups;
+}
+
+async function openGroupPicker(clientId) {
+  const groups = await loadGroups();
+  const card = getClientCard(clientId);
+  const currentGroupId = card?.dataset.groupId || "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60";
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const modal = document.createElement("div");
+  modal.className = "bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-6 w-[400px] max-h-[80vh] flex flex-col gap-4";
+  modal.innerHTML = `
+    <h3 class="text-lg font-semibold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-layer-group text-blue-400"></i> Set Group</h3>
+    <div class="group-picker-list flex flex-col gap-1 overflow-y-auto max-h-60"></div>
+    <div class="border-t border-slate-700 pt-3">
+      <p class="text-xs text-slate-400 mb-2">Create new group</p>
+      <div class="flex gap-2">
+        <input type="text" class="group-new-name flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 outline-none focus:border-blue-500" placeholder="Group name" maxlength="64" />
+        <input type="color" class="group-new-color w-10 h-10 rounded-lg border border-slate-700 bg-slate-800 cursor-pointer" value="#3b82f6" />
+        <button class="group-create-btn px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium">Create</button>
+      </div>
+    </div>
+  `;
+
+  const listEl = modal.querySelector(".group-picker-list");
+
+  function renderList() {
+    listEl.innerHTML = "";
+    const noneBtn = document.createElement("button");
+    noneBtn.className = `w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${!currentGroupId ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`;
+    noneBtn.innerHTML = '<i class="fa-solid fa-xmark text-slate-500"></i> No Group';
+    noneBtn.addEventListener("click", async () => {
+      const ok = await window.setClientGroup(clientId, null);
+      if (ok) setTimeout(() => loadWithOptions({ force: true }), 200);
+      overlay.remove();
+    });
+    listEl.appendChild(noneBtn);
+
+    groups.forEach((g) => {
+      const btn = document.createElement("button");
+      const isActive = String(g.id) === currentGroupId;
+      btn.className = `w-full text-left px-3 py-2 rounded-lg text-sm flex items-center gap-2 transition-colors ${isActive ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`;
+      btn.innerHTML = `<span class="inline-block w-3 h-3 rounded-full flex-shrink-0" style="background:${g.color}"></span> ${escapeHtml(g.name)}`;
+      btn.addEventListener("click", async () => {
+        const ok = await window.setClientGroup(clientId, g.id);
+        if (ok) setTimeout(() => loadWithOptions({ force: true }), 200);
+        overlay.remove();
+      });
+      listEl.appendChild(btn);
+    });
+  }
+
+  renderList();
+
+  const createBtn = modal.querySelector(".group-create-btn");
+  createBtn.addEventListener("click", async () => {
+    const nameInput = modal.querySelector(".group-new-name");
+    const colorInput = modal.querySelector(".group-new-color");
+    const name = nameInput.value.trim();
+    const color = colorInput.value;
+    if (!name) { nameInput.focus(); return; }
+    try {
+      const res = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, color }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        await goylordAlert(d.error || "Failed to create group");
+        return;
+      }
+      const newGroup = await res.json();
+      groups.push(newGroup);
+      nameInput.value = "";
+      renderList();
+      refreshGroupFilter();
+    } catch (err) {
+      console.error(err);
+      await goylordAlert("Failed to create group");
+    }
+  });
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  modal.querySelector(".group-new-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") createBtn.click();
+  });
+}
+
+function escapeHtml(text) {
+  const s = String(text);
+  const map = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  return s.replace(/[&<>"']/g, (ch) => map[ch]);
+}
+
+function renderClientLogs(logs) {
+  if (!Array.isArray(logs) || logs.length === 0) {
+    return '<div class="text-sm text-slate-500 p-3">No secure logs returned.</div>';
+  }
+  return logs.map((entry) => {
+    const ts = entry.at ? new Date(entry.at).toLocaleString() : "";
+    const source = entry.source || "log";
+    return `<div class="border-b border-slate-800 py-2">
+      <div class="text-xs text-slate-500 mb-1">#${escapeHtml(entry.seq)} ${escapeHtml(source)} ${escapeHtml(ts)}</div>
+      <pre class="whitespace-pre-wrap text-xs text-slate-200 font-mono">${escapeHtml(entry.text || "")}</pre>
+    </div>`;
+  }).join("");
+}
+
+function openSecureLogsModal(clientId) {
+  const overlay = document.createElement("div");
+  overlay.className = "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60";
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const modal = document.createElement("div");
+  modal.className = "bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-5 w-[760px] max-w-[calc(100vw-24px)] max-h-[86vh] flex flex-col gap-4";
+  modal.innerHTML = `
+    <div class="flex items-center justify-between gap-3">
+      <h3 class="text-lg font-semibold text-slate-100 flex items-center gap-2"><i class="fa-solid fa-file-shield text-sky-400"></i> Secure Logs</h3>
+      <button class="secure-logs-close text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <button class="secure-logs-fetch px-3 py-2 rounded-lg bg-sky-700 hover:bg-sky-600 text-white text-sm"><i class="fa-solid fa-download mr-1"></i> Request From Client</button>
+      <button class="secure-logs-decrypt px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-sm"><i class="fa-solid fa-key mr-1"></i> Decrypt Pasted Blob</button>
+    </div>
+    <textarea class="secure-logs-input min-h-28 bg-slate-950 border border-slate-700 rounded-lg p-3 text-xs text-slate-200 font-mono outline-none focus:border-sky-500" placeholder="Paste GOYLORD-SECURE-LOG lines here for offline recovery"></textarea>
+    <div class="secure-logs-meta text-xs text-slate-500"></div>
+    <div class="secure-logs-output overflow-auto rounded-lg border border-slate-800 bg-slate-950/70 p-3 min-h-48"></div>
+  `;
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  const output = modal.querySelector(".secure-logs-output");
+  const meta = modal.querySelector(".secure-logs-meta");
+  const input = modal.querySelector(".secure-logs-input");
+  const fetchBtn = modal.querySelector(".secure-logs-fetch");
+  const decryptBtn = modal.querySelector(".secure-logs-decrypt");
+  modal.querySelector(".secure-logs-close")?.addEventListener("click", () => overlay.remove());
+
+  fetchBtn.addEventListener("click", async () => {
+    fetchBtn.disabled = true;
+    output.innerHTML = '<div class="text-sm text-slate-400 p-3">Requesting logs...</div>';
+    try {
+      const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/logs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 200 }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        meta.textContent = data.clientError || data.error || "Secure logs request failed";
+      } else {
+        meta.textContent = `Entries ${data.fromSeq || 0}-${data.toSeq || 0}; dropped ${data.dropped || 0}`;
+      }
+      output.innerHTML = renderClientLogs(data.logs || []);
+    } catch (err) {
+      meta.textContent = err.message || "Secure logs request failed";
+      output.innerHTML = "";
+    } finally {
+      fetchBtn.disabled = false;
+    }
+  });
+
+  decryptBtn.addEventListener("click", async () => {
+    const blob = input.value.trim();
+    if (!blob) {
+      input.focus();
+      return;
+    }
+    decryptBtn.disabled = true;
+    output.innerHTML = '<div class="text-sm text-slate-400 p-3">Decrypting...</div>';
+    try {
+      const res = await fetch("/api/client-logs/decrypt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blob }),
+      });
+      const data = await res.json().catch(() => ({}));
+      meta.textContent = data.errors?.length ? `${data.errors.length} blob(s) could not decrypt` : "Offline blob decrypted";
+      output.innerHTML = renderClientLogs(data.logs || []);
+    } catch (err) {
+      meta.textContent = err.message || "Decrypt failed";
+      output.innerHTML = "";
+    } finally {
+      decryptBtn.disabled = false;
+    }
+  });
+}
+
+window.banClient = async (clientId) => {
+  if (!clientId) return;
+  if (!(await goylordConfirm(`Ban IP for ${clientId} and block future connections?`))) return;
+  try {
+    const res = await fetch(`/api/clients/${clientId}/ban`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await goylordAlert(data.error || "Failed to ban client IP");
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
+    await goylordAlert(`Banned IP ${data.ip || ""}`.trim());
+    setTimeout(() => loadWithOptions({ force: true }), 400);
+  } catch (err) {
+    console.error(err);
+    await goylordAlert("Failed to ban client IP");
+  }
+};
+
+prevBtn?.addEventListener("click", () => {
+  if (state.page > 1) {
+    state.page -= 1;
+    state.lastDigest = "";
+    loadWithOptions({ force: true, reorder: true });
+  }
+});
+
+nextBtn?.addEventListener("click", () => {
+  if (state.page < lastKnownTotalPages) {
+    state.page += 1;
+    state.lastDigest = "";
+    loadWithOptions({ force: true, reorder: true });
+  }
+});
+
+pageJumpForm?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const requested = Math.trunc(Number(pageJumpInput?.value || 1));
+  const targetPage = Math.min(lastKnownTotalPages, Math.max(1, Number.isFinite(requested) ? requested : 1));
+  if (pageJumpInput) pageJumpInput.value = String(targetPage);
+  if (targetPage === state.page) return;
+  state.page = targetPage;
+  state.lastDigest = "";
+  loadWithOptions({ force: true, reorder: true });
+});
+
+window.addEventListener("click", (e) => {
+  const target = e.target;
+  if (target.closest && target.closest(".command-btn")) return;
+  if (target.closest && target.closest(".modal")) return;
+  if (getMenu().contains(target)) return;
+  closeMenu(clearContext);
+});
+
+getMenu().addEventListener("click", async (e) => {
+  const target = e.target.closest("button");
+  if (!target || !contextCard) return;
+  if (target.dataset.groupToggle) return;
+  if (target.disabled || target.getAttribute("aria-disabled") === "true") {
+    return;
+  }
+  const pluginId = target.dataset.plugin;
+  if (pluginId) {
+    const savedClientId = contextCard;
+    try {
+      const res = await fetch(`/api/clients/${savedClientId}/plugins/${pluginId}/load`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      if (res.status === 428) {
+        const data = await res.json();
+        closeMenu(clearContext);
+        if (data.error === "needs_approval_required") {
+          showPluginNeedsModal(pluginId, savedClientId, data.needs, data.needsHash);
+        } else {
+          showPluginConfirmModal(pluginId, savedClientId, data.signature);
+        }
+        return;
+      }
+
+      if (res.status === 403) {
+        const data = await res.json();
+        await goylordAlert(data.error || "Plugin load blocked — invalid signature");
+        closeMenu(clearContext);
+        return;
+      }
+
+      if (!res.ok) {
+        const text = await res.text();
+        await goylordAlert(`Plugin load failed: ${text}`);
+        closeMenu(clearContext);
+        return;
+      }
+      window.open(`/plugins/${pluginId}?clientId=${savedClientId}`, "_blank", "noopener");
+    } catch (err) {
+      await goylordAlert("Plugin load failed");
+    }
+    closeMenu(clearContext);
+    return;
+  }
+  const unloadId = target.dataset.pluginUnload;
+  if (unloadId) {
+    await fetch(`/api/clients/${contextCard}/plugins/${unloadId}/unload`, {
+      method: "POST",
+    });
+    closeMenu(clearContext);
+    return;
+  }
+  const scriptId = target.dataset.scriptId;
+  if (scriptId) {
+    window.open(
+      `/scripts?clientId=${encodeURIComponent(contextCard)}&scriptId=${encodeURIComponent(scriptId)}`,
+      "_blank",
+      "noopener",
+    );
+    closeMenu(clearContext);
+    return;
+  }
+  const open = target.dataset.open;
+  if (open === "console") {
+    window.open(`/${contextCard}/console`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "remotedesktop") {
+    window.open(`/remotedesktop?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "webcam") {
+    window.open(`/webcam?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "Backstage") {
+    window.open(`/backstage?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "Virtual") {
+    // mode=hidden is understood by older backstage.js builds; current builds treat
+    // it as the virtual-monitor mode compatibility alias.
+    window.open(`/backstage?clientId=${contextCard}&mode=hidden`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "files") {
+    const platform = detectClientPlatform(contextCard);
+    if (platform !== "windows") {
+      const proceed = await goylordConfirm(
+        "Opening File Browser may show a permission prompt to the target user on their machine. Continue?",
+      );
+      if (!proceed) {
+        closeMenu(clearContext);
+        return;
+      }
+    }
+    window.open(`/${contextCard}/files`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "processes") {
+    window.open(`/${contextCard}/processes`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "keylogger") {
+    window.open(`/${contextCard}/keylogger`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "silent-exec") {
+    window.open(`/deploy?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  if (open === "winre") {
+    window.open(`/winre?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+  const action = target.dataset.action;
+
+  if (open === "voice") {
+    window.open(`/voice?clientId=${contextCard}`, "_blank", "noopener");
+    closeMenu(clearContext);
+    return;
+  }
+
+  if (action === "uninstall") {
+    if (
+      !(await goylordConfirm(
+        `Uninstall agent from ${contextCard}?\n\nThis will remove all persistence mechanisms and terminate the agent. This action cannot be undone.`,
+      ))
+    ) {
+      closeMenu(clearContext);
+      return;
+    }
+  } else if (action === "disconnect") {
+    if (
+      !(await goylordConfirm(
+        `Disconnect ${contextCard}?\n\nThis will terminate the agent connection.`,
+      ))
+    ) {
+      closeMenu(clearContext);
+      return;
+    }
+  } else if (action === "remove-dashboard") {
+    if (
+      !(await goylordConfirm(
+        `Remove ${contextCard} from the dashboard list?\n\nUse this for stale clients that are already gone. If that client reconnects later, it will appear again.`,
+      ))
+    ) {
+      closeMenu(clearContext);
+      return;
+    }
+
+    const removed = await window.removeClientFromDashboard(contextCard);
+    if (removed) {
+      updateBulkToolbar();
+      setTimeout(() => loadWithOptions({ force: true }), 200);
+    }
+    closeMenu(clearContext);
+    return;
+  } else if (action === "set-nickname") {
+    const card = getClientCard(contextCard);
+    const currentNickname = (card?.dataset.nickname || "").trim();
+    const input = await goylordPrompt(
+      `Set nickname for ${contextCard}\n\nLeave blank to clear nickname.`,
+      currentNickname,
+    );
+    if (input === null) {
+      closeMenu(clearContext);
+      return;
+    }
+
+    const trimmed = input.trim();
+    const updated = await window.setClientNickname(contextCard, trimmed || null);
+    if (updated) {
+      setTimeout(() => loadWithOptions({ force: true }), 200);
+    }
+    closeMenu(clearContext);
+    return;
+  } else if (action === "set-custom-tag") {
+    const card = getClientCard(contextCard);
+    const currentTag = (card?.dataset.customTag || "").trim();
+    const currentNote = card?._customTagNote || "";
+    const result = await openTagNoteEditor(contextCard, currentTag, currentNote);
+    if (!result) {
+      closeMenu(clearContext);
+      return;
+    }
+
+    const updated = await window.setClientTag(
+      contextCard,
+      result.tag || "",
+      result.note || "",
+    );
+    if (updated) {
+      setTimeout(() => loadWithOptions({ force: true }), 200);
+    }
+    closeMenu(clearContext);
+    return;
+  } else if (action === "set-group") {
+    const savedClientId = contextCard;
+    closeMenu(clearContext);
+    openGroupPicker(savedClientId);
+    return;
+  } else if (action === "toggle-mute") {
+    const card = getClientCard(contextCard);
+    const currentlyMuted = card?.dataset.notificationsMuted === "true";
+    const ok = await window.setClientNotificationsMuted(contextCard, !currentlyMuted);
+    if (ok) setTimeout(() => loadWithOptions({ force: true }), 200);
+    closeMenu(clearContext);
+    return;
+  } else if (action === "secure-logs") {
+    const savedClientId = contextCard;
+    closeMenu(clearContext);
+    openSecureLogsModal(savedClientId);
+    return;
+  }
+
+  if (!isClientOnline(contextCard)) {
+    await goylordAlert("Client is offline. This command can only be used while the client is online.");
+    closeMenu(clearContext);
+    return;
+  }
+
+  if (action === "elevate") {
+    const isMac = detectClientPlatform(contextCard) === "mac";
+    let password = "";
+    if (isMac) {
+      password = await goylordPrompt("Enter the user's macOS password for sudo elevation:");
+      if (!password) {
+        closeMenu(clearContext);
+        return;
+      }
+    }
+    try {
+      const payload = { action: "elevate" };
+      if (password) payload.password = password;
+      const res = await fetch(`/api/clients/${contextCard}/command`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.ok) {
+        await goylordAlert(data.message || "Elevation successful — client will reconnect elevated.");
+        setTimeout(() => requestThumbnail(contextCard), 5000);
+        setTimeout(() => requestThumbnail(contextCard), 10000);
+        setTimeout(() => requestThumbnail(contextCard), 18000);
+      } else {
+        await goylordAlert(data.error || data.message || "Elevation failed.");
+      }
+    } catch (err) {
+      await goylordAlert("Elevation request failed: " + err.message);
+    }
+    closeMenu(clearContext);
+    setTimeout(() => loadWithOptions({ force: true }), 5000);
+    return;
+  }
+
+  if (action === "disconnect") {
+    markManualDisconnect(contextCard);
+  }
+
+  if (action === "uninstall") {
+    flipFallAndRemove(contextCard);
+  }
+
+  const ok = await sendCommand(contextCard, action);
+  if (ok) {
+    // Wait for the flip-fall to finish before refreshing the grid, otherwise
+    // the reload would yank the animating card from layout.
+    const refreshDelay = action === "uninstall" ? 1300 : 400;
+    setTimeout(() => loadWithOptions({ force: true }), refreshDelay);
+  }
+  closeMenu(clearContext);
+});
+
+loadCurrentUser();
+
+// console easter egg
+(function () {
+  const runWhenIdle = (fn) => {
+    if ("requestIdleCallback" in window) {
+      window.requestIdleCallback(fn, { timeout: 5000 });
+      return;
+    }
+    window.addEventListener("load", () => setTimeout(fn, 1500), { once: true });
+  };
+
+  const consoleimg = {
+    load: function (src, { size = 320, color = "transparent" } = {}) {
+      const reader = new FileReader();
+      reader.addEventListener("load", function () {
+        const style =
+          "background: url('" + reader.result + "') left top no-repeat; font-size: " +
+          size +
+          "px; background-size: contain; background-color:" +
+          color;
+        console.log("%c     ", style);
+      }, false);
+      fetch(src)
+        .then((r) => r.blob())
+        .then((blob) => {
+          if (blob.type.indexOf("image") === 0) {
+            if (blob.size > 8192 && navigator.userAgent.indexOf("Firefox") > 0)
+              throw new Error("Image size too big to be displayed in Firefox.");
+            return blob;
+          }
+          throw new Error("Valid image not found.");
+        })
+        .then((blob) => reader.readAsDataURL(blob))
+        .catch((err) => console.warn(err.message));
+    },
+  };
+  runWhenIdle(() => consoleimg.load("/assets/console.gif", { size: 320, color: "transparent" }));
+})();

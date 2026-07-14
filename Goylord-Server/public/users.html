@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <title>User Management - Goylord</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <script defer src="/assets/toast.js"></script>
+    <script defer src="/assets/ripple.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+
+    <div class="min-h-full flex flex-col">
+      <!-- Main Content -->
+      <main class="flex-1 max-w-7xl w-full mx-auto px-4 py-8">
+        <!-- Permission Groups Manager -->
+        <details class="mb-6 bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden">
+          <summary class="cursor-pointer px-6 py-4 flex items-center justify-between hover:bg-slate-800/30 transition-colors">
+            <div>
+              <h2 class="text-xl font-bold text-slate-100"><i class="fa-solid fa-layer-group mr-2 text-violet-400"></i>Permission Groups</h2>
+              <p class="text-slate-400 text-sm">Bundles of permissions that can be assigned to users. Groups can only grant — they never revoke.</p>
+            </div>
+            <button id="new-group-btn" type="button" class="px-3 py-1.5 bg-violet-700 hover:bg-violet-600 text-white rounded-lg text-sm font-medium" onclick="event.preventDefault(); event.stopPropagation();">
+              <i class="fa-solid fa-plus mr-1"></i>New Group
+            </button>
+          </summary>
+          <div class="border-t border-slate-800 p-4">
+            <div id="groups-list" class="space-y-2">
+              <p class="text-slate-500 text-sm text-center py-4">Loading groups...</p>
+            </div>
+          </div>
+        </details>
+
+        <!-- Actions Bar -->
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <h2 class="text-2xl font-bold text-slate-100 mb-1">Users</h2>
+            <p class="text-slate-400 text-sm">Manage user accounts and roles</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="inline-flex items-center gap-2 px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-sm text-slate-300">
+              <input
+                id="own-users-toggle"
+                type="checkbox"
+                class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+              />
+              <span>Only my users</span>
+            </label>
+            <button
+              id="add-user-btn"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+            >
+              <i class="fa-solid fa-user-plus mr-2"></i>Add User
+            </button>
+          </div>
+        </div>
+
+        <!-- Users Table -->
+        <div
+          class="bg-slate-900/50 border border-slate-800 rounded-xl overflow-hidden"
+        >
+          <table class="w-full" aria-label="Users">
+            <thead class="bg-slate-800/50 border-b border-slate-700">
+              <tr>
+                <th
+                  class="text-left px-6 py-4 text-sm font-semibold text-slate-300"
+                >
+                  Username
+                </th>
+                <th
+                  class="text-left px-6 py-4 text-sm font-semibold text-slate-300"
+                >
+                  Role
+                </th>
+                <th
+                  class="text-left px-6 py-4 text-sm font-semibold text-slate-300"
+                >
+                  Created
+                </th>
+                <th
+                  class="text-left px-6 py-4 text-sm font-semibold text-slate-300"
+                >
+                  Last Login
+                </th>
+                <th
+                  class="text-left px-6 py-4 text-sm font-semibold text-slate-300"
+                >
+                  Created By
+                </th>
+                <th
+                  class="text-right px-6 py-4 text-sm font-semibold text-slate-300"
+                >
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody id="users-table-body" class="divide-y divide-slate-800">
+              <tr>
+                <td colspan="6" class="px-6 py-12 text-center text-slate-400">
+                  <i class="fa-solid fa-spinner fa-spin mr-2"></i>Loading
+                  users...
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+
+    <!-- Add/Edit User Modal -->
+    <div
+      id="user-modal"
+      class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    >
+      <div
+        class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl"
+      >
+        <div class="flex items-center justify-between mb-6">
+          <h3 id="modal-title" class="text-xl font-bold text-slate-100">
+            Add User
+          </h3>
+          <button
+            id="close-modal"
+            class="text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <i class="fa-solid fa-times text-xl"></i>
+          </button>
+        </div>
+
+        <form id="user-form" class="space-y-4">
+          <div>
+            <label
+              for="username"
+              class="block text-sm font-medium text-slate-300 mb-2"
+              >Username</label
+            >
+            <input
+              type="text"
+              id="username"
+              name="username"
+              required
+              pattern="[a-zA-Z0-9_-]+"
+              minlength="3"
+              maxlength="32"
+              class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter username"
+            />
+            <p class="text-xs text-slate-500 mt-1">
+              3-32 characters, letters, numbers, hyphens, and underscores only
+            </p>
+          </div>
+
+          <div id="password-field">
+            <label
+              for="password"
+              class="block text-sm font-medium text-slate-300 mb-2"
+              >Password</label
+            >
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              minlength="6"
+              class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Enter password"
+            />
+            <p class="text-xs text-slate-500 mt-1">Minimum 6 characters</p>
+          </div>
+
+          <div>
+            <label
+              for="role"
+              class="block text-sm font-medium text-slate-300 mb-2"
+              >Role</label
+            >
+            <select
+              id="role"
+              name="role"
+              required
+              class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="viewer">Viewer - Read-only access</option>
+              <option value="operator">Operator - Can control clients</option>
+              <option value="admin">Admin - Full access</option>
+            </select>
+          </div>
+
+          <div
+            id="error-message"
+            class="hidden p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm"
+          >
+            <i class="fa-solid fa-exclamation-triangle mr-2"></i>
+            <span id="error-text"></span>
+          </div>
+
+          <div class="flex gap-3 pt-2">
+            <button
+              type="button"
+              id="cancel-btn"
+              class="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+            >
+              <i class="fa-solid fa-check mr-2"></i>Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Group Editor Modal -->
+    <div id="group-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="group-modal-title" class="text-xl font-bold">Edit Group</h3>
+          <button id="close-group-modal" class="text-slate-400 hover:text-slate-200"><i class="fa-solid fa-times text-xl"></i></button>
+        </div>
+        <form id="group-form" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Name</label>
+            <input id="group-name" type="text" required maxlength="64" class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Description (optional)</label>
+            <input id="group-description" type="text" maxlength="256" class="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-300 mb-2">Permissions</label>
+            <div id="group-permissions-list" class="space-y-1 max-h-72 overflow-y-auto border border-slate-700 rounded-lg p-3 bg-slate-950/50">
+              <p class="text-slate-500 text-sm">Loading...</p>
+            </div>
+          </div>
+          <div id="group-error" class="hidden p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm"></div>
+          <div class="flex gap-3 pt-2">
+            <button type="button" id="group-cancel-btn" class="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700">Cancel</button>
+            <button type="submit" class="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- User Permissions Modal -->
+    <div id="user-perms-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="user-perms-title" class="text-xl font-bold">Permissions</h3>
+          <button id="close-user-perms-modal" class="text-slate-400 hover:text-slate-200"><i class="fa-solid fa-times text-xl"></i></button>
+        </div>
+        <p class="text-sm text-slate-400 mb-4">Groups bundle permissions; extras grant specific permissions on top. Both are additive — they only add to what the user's role already grants.</p>
+        <div class="space-y-4">
+          <div>
+            <h4 class="text-sm font-semibold text-slate-300 mb-2">Groups</h4>
+            <div id="user-groups-list" class="space-y-1 max-h-48 overflow-y-auto border border-slate-700 rounded-lg p-3 bg-slate-950/50">
+              <p class="text-slate-500 text-sm">Loading...</p>
+            </div>
+          </div>
+          <div>
+            <h4 class="text-sm font-semibold text-slate-300 mb-2">Extra Permissions</h4>
+            <div id="user-extras-list" class="space-y-1 max-h-72 overflow-y-auto border border-slate-700 rounded-lg p-3 bg-slate-950/50">
+              <p class="text-slate-500 text-sm">Loading...</p>
+            </div>
+          </div>
+        </div>
+        <div id="user-perms-error" class="hidden mt-3 p-3 bg-red-900/20 border border-red-800 rounded-lg text-red-400 text-sm"></div>
+        <div class="flex gap-3 pt-4">
+          <button type="button" id="user-perms-cancel-btn" class="flex-1 px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700">Cancel</button>
+          <button type="button" id="user-perms-save-btn" class="flex-1 px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg font-medium">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/assets/nav.js"></script>
+    <script type="module" src="/assets/users.js"></script>
+  </body>
+</html>

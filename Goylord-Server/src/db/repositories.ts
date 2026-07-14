@@ -1,0 +1,2305 @@
+import type { ClientInfo, ListFilters, ListResult, ClientRole } from "../types";
+import Fuse from "fuse.js";
+import { getThumbnailSummaries } from "../thumbnails";
+import { db, dbPath } from "./connection";
+import "./schema";
+
+export * from "./repositories/chat";
+export * from "./repositories/oidc";
+export * from "./repositories/revoked-tokens";
+export * from "./repositories/sessions";
+export * from "./repositories/shared-files";
+
+export type ClientDbRow = Omit<Partial<ClientInfo>, "online"> & {
+  id: string;
+  lastSeen?: number;
+  online?: number;
+};
+
+export type OfflineStateUpdate = {
+  id: string;
+  disconnectReason?: string;
+  disconnectDetail?: string;
+};
+
+const UPSERT_CLIENT_ROW_SQL = `INSERT INTO clients (id, hwid, role, ip, host, os, arch, version, user, nickname, custom_tag, custom_tag_note, monitors, country, last_seen, online, ping_ms, build_tag, built_by_user_id, enrollment_status, public_key, key_fingerprint, cpu, gpu, ram, storage_total_gb, os_family, os_distro, os_version, battery_percent, battery_charging, webcam_available, webcam_devices, is_admin, elevation, permissions, plugin_meta)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, COALESCE(?, 0), ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       hwid=COALESCE(excluded.hwid, clients.hwid),
+       role=COALESCE(excluded.role, clients.role),
+       ip=COALESCE(excluded.ip, clients.ip),
+       host=COALESCE(excluded.host, clients.host),
+       os=COALESCE(excluded.os, clients.os),
+       arch=COALESCE(excluded.arch, clients.arch),
+       version=COALESCE(excluded.version, clients.version),
+       user=COALESCE(excluded.user, clients.user),
+      nickname=clients.nickname,
+      custom_tag=clients.custom_tag,
+      custom_tag_note=clients.custom_tag_note,
+       monitors=COALESCE(excluded.monitors, clients.monitors),
+       country=COALESCE(excluded.country, clients.country),
+       last_seen=excluded.last_seen,
+       online=COALESCE(excluded.online, clients.online),
+       ping_ms=COALESCE(excluded.ping_ms, clients.ping_ms),
+      build_tag=COALESCE(excluded.build_tag, clients.build_tag),
+      built_by_user_id=COALESCE(excluded.built_by_user_id, clients.built_by_user_id),
+       enrollment_status=CASE WHEN excluded.enrollment_status <> 'pending' THEN excluded.enrollment_status ELSE COALESCE(clients.enrollment_status, 'pending') END,
+       public_key=COALESCE(excluded.public_key, clients.public_key),
+       key_fingerprint=COALESCE(excluded.key_fingerprint, clients.key_fingerprint),
+       cpu=COALESCE(excluded.cpu, clients.cpu),
+       gpu=COALESCE(excluded.gpu, clients.gpu),
+       ram=COALESCE(excluded.ram, clients.ram),
+       storage_total_gb=COALESCE(excluded.storage_total_gb, clients.storage_total_gb),
+       os_family=COALESCE(excluded.os_family, clients.os_family),
+       os_distro=COALESCE(excluded.os_distro, clients.os_distro),
+       os_version=COALESCE(excluded.os_version, clients.os_version),
+       battery_percent=COALESCE(excluded.battery_percent, clients.battery_percent),
+       battery_charging=COALESCE(excluded.battery_charging, clients.battery_charging),
+       webcam_available=COALESCE(excluded.webcam_available, clients.webcam_available),
+       webcam_devices=COALESCE(excluded.webcam_devices, clients.webcam_devices),
+       is_admin=COALESCE(excluded.is_admin, clients.is_admin),
+       elevation=COALESCE(excluded.elevation, clients.elevation),
+       permissions=COALESCE(excluded.permissions, clients.permissions),
+       plugin_meta=COALESCE(excluded.plugin_meta, clients.plugin_meta)
+    `;
+
+const upsertClientRowStmt = db.prepare(UPSERT_CLIENT_ROW_SQL);
+
+function upsertClientRowInternal(partial: ClientDbRow): void {
+  const now = partial.lastSeen ?? Date.now();
+  upsertClientRowStmt.run(
+    partial.id,
+    partial.hwid ?? partial.id,
+    partial.role ?? null,
+    partial.ip ?? null,
+    partial.host ?? null,
+    partial.os ?? null,
+    partial.arch ?? null,
+    partial.version ?? null,
+    partial.user ?? null,
+    partial.nickname ?? null,
+    partial.customTag ?? null,
+    partial.customTagNote ?? null,
+    partial.monitors ?? null,
+    partial.country ?? null,
+    now,
+    partial.online ?? 0,
+    partial.pingMs ?? null,
+    partial.buildTag ?? null,
+    partial.builtByUserId ?? null,
+    partial.enrollmentStatus ?? "pending",
+    partial.publicKey ?? null,
+    partial.keyFingerprint ?? null,
+    partial.cpu ?? null,
+    partial.gpu ?? null,
+    partial.ram ?? null,
+    partial.storageTotalGb ?? null,
+    partial.osFamily ?? null,
+    partial.osDistro ?? null,
+    partial.osVersion ?? null,
+    partial.batteryPercent ?? null,
+    partial.batteryCharging !== undefined && partial.batteryCharging !== null ? (partial.batteryCharging ? 1 : 0) : null,
+    partial.webcamAvailable !== undefined ? (partial.webcamAvailable ? 1 : 0) : null,
+    partial.webcamDevices ? JSON.stringify(partial.webcamDevices) : null,
+    partial.isAdmin !== undefined ? (partial.isAdmin ? 1 : 0) : null,
+    partial.elevation ?? null,
+    partial.permissions ? JSON.stringify(partial.permissions) : null,
+    partial.pluginMeta ? JSON.stringify(partial.pluginMeta) : null,
+  );
+
+  if (partial.hwid) {
+    db.run(
+      `DELETE FROM clients WHERE hwid=? AND id<>?`,
+      partial.hwid,
+      partial.id,
+    );
+  }
+}
+
+const upsertClientRowsTx = db.transaction((rows: ClientDbRow[]) => {
+  for (const row of rows) {
+    upsertClientRowInternal(row);
+  }
+});
+
+const upsertSingleClientTx = db.transaction((partial: ClientDbRow) => {
+  upsertClientRowInternal(partial);
+});
+
+export function upsertClientRow(
+  partial: ClientDbRow,
+) {
+  upsertSingleClientTx(partial);
+  invalidateClientMetricsSummaryCache();
+}
+
+export function upsertClientRows(rows: ClientDbRow[]): void {
+  if (rows.length === 0) return;
+  upsertClientRowsTx(rows);
+  invalidateClientMetricsSummaryCache();
+}
+
+export function setOnlineState(id: string, online: boolean, disconnectReason?: string, disconnectDetail?: string) {
+  if (online) {
+    db.run(
+      `UPDATE clients SET online=1, last_seen=?, disconnect_reason=NULL, disconnect_detail=NULL WHERE id=?`,
+      Date.now(),
+      id,
+    );
+  } else {
+    db.run(
+      `UPDATE clients SET online=0, last_seen=?, disconnect_reason=?, disconnect_detail=? WHERE id=?`,
+      Date.now(),
+      disconnectReason ?? null,
+      disconnectDetail ?? null,
+      id,
+    );
+  }
+  invalidateClientMetricsSummaryCache();
+}
+
+export function setClientDisconnectInfo(id: string, disconnectReason: string, disconnectDetail?: string) {
+  db.run(
+    `UPDATE clients SET disconnect_reason=?, disconnect_detail=? WHERE id=?`,
+    disconnectReason || null,
+    disconnectDetail || null,
+    id,
+  );
+  invalidateClientMetricsSummaryCache();
+}
+
+const setOfflineStateStmt = db.prepare(
+  `UPDATE clients SET online=0, last_seen=?, disconnect_reason=?, disconnect_detail=? WHERE id=?`,
+);
+
+const setOfflineStatesTx = db.transaction((updates: OfflineStateUpdate[]) => {
+  const now = Date.now();
+  for (const update of updates) {
+    setOfflineStateStmt.run(
+      now,
+      update.disconnectReason ?? null,
+      update.disconnectDetail ?? null,
+      update.id,
+    );
+  }
+});
+
+export function setOfflineStates(updates: OfflineStateUpdate[]): void {
+  if (updates.length === 0) return;
+  setOfflineStatesTx(updates);
+  invalidateClientMetricsSummaryCache();
+}
+
+export function deleteClientRow(id: string) {
+  db.run(`DELETE FROM clients WHERE id=?`, id);
+  invalidateClientMetricsSummaryCache();
+}
+
+export function deleteOfflineClientRows(): number {
+  const result = db.run(`DELETE FROM clients WHERE online=0`);
+  invalidateClientMetricsSummaryCache();
+  return (result as any)?.changes || 0;
+}
+
+export function getClientOnlineState(id: string): boolean | null {
+  const row = db.query<{ online: number }>(`SELECT online FROM clients WHERE id=?`).get(id);
+  if (!row) return null;
+  return row.online === 1;
+}
+
+export function setClientNickname(id: string, nickname: string | null): boolean {
+  const result = db.run(
+    `UPDATE clients SET nickname=? WHERE id=?`,
+    nickname && nickname.trim() ? nickname.trim() : null,
+    id,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function getClientNickname(id: string): string | null {
+  const row = db.query<{ nickname: string | null }>(`SELECT nickname FROM clients WHERE id=?`).get(id);
+  return row?.nickname ?? null;
+}
+
+export function setClientTag(
+  id: string,
+  tag: string | null,
+  note: string | null,
+): boolean {
+  const normalizedTag = tag && tag.trim() ? tag.trim() : null;
+  const normalizedNote = normalizedTag ? note ?? null : null;
+  const result = db.run(
+    `UPDATE clients SET custom_tag=?, custom_tag_note=? WHERE id=?`,
+    normalizedTag,
+    normalizedNote,
+    id,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export interface ClientGroup {
+  id: number;
+  name: string;
+  color: string;
+  createdAt: number;
+  clientCount?: number;
+}
+
+export function listGroups(): ClientGroup[] {
+  const rows = db.query<any>(
+    `SELECT g.id, g.name, g.color, g.created_at as createdAt,
+            COUNT(c.id) as clientCount
+     FROM client_groups g
+     LEFT JOIN clients c ON c.group_id = g.id
+     GROUP BY g.id
+     ORDER BY g.name ASC`,
+  ).all();
+  return rows.map((r: any) => ({
+    id: r.id,
+    name: r.name,
+    color: r.color,
+    createdAt: r.createdAt,
+    clientCount: r.clientCount ?? 0,
+  }));
+}
+
+export function getGroup(id: number): ClientGroup | null {
+  const row = db.query<any>(
+    `SELECT id, name, color, created_at as createdAt FROM client_groups WHERE id=?`,
+  ).get(id);
+  return row ? { id: row.id, name: row.name, color: row.color, createdAt: row.createdAt } : null;
+}
+
+export function createGroup(name: string, color: string): ClientGroup {
+  const now = Date.now();
+  const result = db.run(
+    `INSERT INTO client_groups (name, color, created_at) VALUES (?, ?, ?)`,
+    name.trim(),
+    color,
+    now,
+  );
+  return { id: Number(result.lastInsertRowid), name: name.trim(), color, createdAt: now };
+}
+
+export function updateGroup(id: number, name: string, color: string): boolean {
+  const result = db.run(
+    `UPDATE client_groups SET name=?, color=? WHERE id=?`,
+    name.trim(),
+    color,
+    id,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function deleteGroup(id: number): boolean {
+  db.run(`UPDATE clients SET group_id=NULL WHERE group_id=?`, id);
+  const result = db.run(`DELETE FROM client_groups WHERE id=?`, id);
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function setClientGroup(clientId: string, groupId: number | null): boolean {
+  const result = db.run(
+    `UPDATE clients SET group_id=? WHERE id=?`,
+    groupId,
+    clientId,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function getClientIp(id: string): string | null {
+  const row = db.query<{ ip: string }>(`SELECT ip FROM clients WHERE id=?`).get(id);
+  return row?.ip || null;
+}
+
+export function banIp(ip: string, reason?: string) {
+  db.run(
+    `INSERT OR REPLACE INTO banned_ips (ip, reason, created_at) VALUES (?, ?, ?)`
+    , ip,
+    reason || null,
+    Date.now(),
+  );
+}
+
+export function unbanIp(ip: string) {
+  db.run(`DELETE FROM banned_ips WHERE ip=?`, ip);
+}
+
+export type BannedIpEntry = {
+  ip: string;
+  reason: string | null;
+  createdAt: number;
+};
+
+export function listBannedIps(): BannedIpEntry[] {
+  const rows = db
+    .query<{ ip: string; reason: string | null; createdAt: number }>(
+      `SELECT ip, reason, created_at as createdAt FROM banned_ips ORDER BY created_at DESC`,
+    )
+    .all();
+
+  return rows.map((row) => ({
+    ip: row.ip,
+    reason: row.reason,
+    createdAt: Number(row.createdAt) || 0,
+  }));
+}
+
+export function isIpBanned(ip: string): boolean {
+  const row = db.query<{ ip: string }>(`SELECT ip FROM banned_ips WHERE ip=?`).get(ip);
+  return !!row?.ip;
+}
+
+export function markAllClientsOffline() {
+  db.run(`UPDATE clients SET online=0`);
+  invalidateClientMetricsSummaryCache();
+  console.log("[db] marked all clients as offline");
+}
+
+export const SUSPICIOUS_FLOOD_THRESHOLD = Math.max(2, Number(process.env.GOYLORD_SUSPICIOUS_FLOOD_THRESHOLD || 40));
+const SUSPICIOUS_IP_FLOOD_WINDOW_MS = Math.max(60_000, Number(process.env.GOYLORD_SUSPICIOUS_IP_WINDOW_MS || 300_000));
+const SUSPICIOUS_SCAN_MAX_CLIENTS = Math.max(0, Number(process.env.GOYLORD_SUSPICIOUS_SCAN_MAX_CLIENTS || 50_000));
+
+export function getFloodedHwids(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
+  const rows = db
+    .query<{ hwid: string }>(
+      `SELECT hwid FROM clients WHERE hwid IS NOT NULL AND hwid != '' GROUP BY hwid HAVING COUNT(*) >= ?`,
+    )
+    .all(threshold);
+  return new Set(rows.map((r) => r.hwid));
+}
+
+export function getFloodedHardware(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
+  const rows = db
+    .query<{ cpu: string; gpu: string; ram: string; os: string }>(
+      `SELECT cpu, gpu, ram, os FROM clients
+       WHERE cpu IS NOT NULL AND cpu != '' AND os IS NOT NULL AND os != ''
+       GROUP BY cpu, gpu, ram, os HAVING COUNT(*) >= ?`,
+    )
+    .all(threshold);
+  const keys = new Set<string>();
+  for (const r of rows) keys.add(`${r.cpu}|${r.gpu ?? ""}|${r.ram ?? ""}|${r.os}`);
+  return keys;
+}
+
+export function getFloodedIps(threshold = SUSPICIOUS_FLOOD_THRESHOLD): Set<string> {
+  const since = Date.now() - SUSPICIOUS_IP_FLOOD_WINDOW_MS;
+  const rows = db
+    .query<{ ip: string }>(
+      `SELECT ip FROM clients WHERE ip IS NOT NULL AND ip != '' AND last_seen > ? GROUP BY ip HAVING COUNT(*) >= ?`,
+    )
+    .all(since, threshold);
+  return new Set(rows.map((r) => r.ip));
+}
+
+const FLOOD_CACHE_TTL_MS = 30_000;
+let _floodCacheTs = 0;
+let _cachedFloodedHwids: Set<string> | null = null;
+let _cachedFloodedHardware: Set<string> | null = null;
+let _cachedFloodedIps: Set<string> | null = null;
+
+function getFloodSetsWithCache(): { floodedHwids: Set<string>; floodedHardware: Set<string>; floodedIps: Set<string> } {
+  const now = Date.now();
+  if (now - _floodCacheTs > FLOOD_CACHE_TTL_MS) {
+    _cachedFloodedHwids = getFloodedHwids();
+    _cachedFloodedHardware = getFloodedHardware();
+    _cachedFloodedIps = getFloodedIps();
+    _floodCacheTs = now;
+  }
+  return { floodedHwids: _cachedFloodedHwids!, floodedHardware: _cachedFloodedHardware!, floodedIps: _cachedFloodedIps! };
+}
+
+function parseRamGb(ram: string | null | undefined): number | null {
+  if (!ram) return null;
+  const m = ram.match(/(\d+(?:\.\d+)?)\s*(tb|gb|mb|kb)/i);
+  if (!m) return null;
+  const val = parseFloat(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === "tb") return val * 1024;
+  if (unit === "gb") return val;
+  if (unit === "mb") return val / 1024;
+  if (unit === "kb") return val / (1024 * 1024);
+  return null;
+}
+
+export type SuspiciousFlags = string[];
+
+const VM_CPU_PATTERNS = [
+  /\bqemu\b/i,
+  /\bkvm\b/i,
+  /\bvmware\b/i,
+  /\bvirtualbox\b/i,
+  /virtual\s+cpu/i,
+  /\bhyper-v\b/i,
+  /\bbochs\b/i,
+  /\bxen\b/i,
+];
+
+const VM_GPU_PATTERNS = [
+  /vmware/i,
+  /virtualbox/i,
+  /\bqemu\b/i,
+  /microsoft\s+basic\s+(render|display)/i,
+  /cirrus\s+logic/i,
+  /standard\s+vga/i,
+  /\bllvmpipe\b/i,
+  /\bsoftpipe\b/i,
+  /\bqxl\b/i,
+  /\bvirtio\b/i,
+  /hyper-v\s+video/i,
+  /terminal\s+server/i,
+  /remote\s+desktop/i,
+  /parsec\s+display/i,
+];
+
+export function computeClientSuspiciousFlags(
+  client: {
+    id?: string;
+    hwid?: string | null;
+    cpu?: string | null;
+    gpu?: string | null;
+    ram?: string | null;
+    os?: string | null;
+    host?: string | null;
+    user?: string | null;
+    ip?: string | null;
+    monitors?: number | null;
+  },
+  precomputed?: {
+    floodedHwids?: Set<string>;
+    floodedHardware?: Set<string>;
+    floodedIps?: Set<string>;
+  },
+): SuspiciousFlags {
+  const flags: string[] = [];
+  const allProvided = precomputed?.floodedHwids !== undefined && precomputed?.floodedHardware !== undefined && precomputed?.floodedIps !== undefined;
+  const sets = allProvided ? (precomputed as Required<typeof precomputed>) : getFloodSetsWithCache();
+  const fHwids = sets.floodedHwids;
+  const fHardware = sets.floodedHardware;
+  const fIps = sets.floodedIps;
+
+  if (client.hwid && fHwids.has(client.hwid)) flags.push("hwid_flood");
+
+  if (client.cpu && client.os) {
+    const hwKey = `${client.cpu}|${client.gpu ?? ""}|${client.ram ?? ""}|${client.os}`;
+    if (fHardware.has(hwKey)) flags.push("hw_flood");
+  }
+
+  if (!client.host || !client.host.trim()) flags.push("no_hostname");
+  if (!client.user || !client.user.trim()) flags.push("no_user");
+
+  if (client.ip && fIps.has(client.ip)) flags.push("ip_flood");
+
+  const cpuIsVm = !!client.cpu && VM_CPU_PATTERNS.some((p) => p.test(client.cpu!));
+  const gpuIsVm = !!client.gpu && VM_GPU_PATTERNS.some((p) => p.test(client.gpu!));
+  if (cpuIsVm || gpuIsVm) flags.push("vm_hardware");
+
+  const ramGb = parseRamGb(client.ram);
+  if (ramGb !== null && [0.25, 0.5, 1, 2, 4].some((s) => Math.abs(ramGb - s) < 0.05)) {
+    flags.push("vm_ram");
+  }
+
+  if (typeof client.monitors === "number" && client.monitors === 0) {
+    flags.push("no_monitors");
+  }
+
+  return flags;
+}
+
+const CLIENT_SEARCH_KEYS = [
+  { name: "nickname", weight: 0.32 },
+  { name: "host", weight: 0.28 },
+  { name: "user", weight: 0.18 },
+  { name: "id", weight: 0.18 },
+  { name: "customTag", weight: 0.2 },
+  { name: "customTagNote", weight: 0.1 },
+  { name: "groupName", weight: 0.14 },
+  { name: "os", weight: 0.12 },
+  { name: "ip", weight: 0.1 },
+  { name: "hwid", weight: 0.08 },
+  { name: "country", weight: 0.06 },
+  { name: "version", weight: 0.06 },
+  { name: "buildTag", weight: 0.06 },
+  { name: "cpu", weight: 0.05 },
+  { name: "gpu", weight: 0.05 },
+  { name: "ram", weight: 0.04 },
+] as const;
+
+const CLIENT_SEARCH_SQL_COLUMNS = [
+  "COALESCE(c.nickname,'')",
+  "COALESCE(c.host,'')",
+  "COALESCE(c.user,'')",
+  "c.id",
+  "COALESCE(c.custom_tag,'')",
+  "COALESCE(c.custom_tag_note,'')",
+  "COALESCE(g.name,'')",
+  "COALESCE(c.os,'')",
+  "COALESCE(c.ip,'')",
+  "COALESCE(c.hwid,'')",
+  "COALESCE(c.country,'')",
+  "COALESCE(c.version,'')",
+  "COALESCE(c.build_tag,'')",
+  "COALESCE(c.cpu,'')",
+  "COALESCE(c.gpu,'')",
+  "COALESCE(c.ram,'')",
+] as const;
+
+function escapeLikeTerm(term: string): string {
+  return term.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function buildFuzzyCandidateWhere(search: string): { sql: string; params: string[] } {
+  const query = search.trim().toLowerCase();
+  if (!query) return { sql: "", params: [] };
+
+  const terms = Array.from(new Set([
+    query,
+    ...query.split(/[\s,;:|/\\]+/),
+  ].map((term) => term.trim()).filter((term) => term.length >= 2))).slice(0, 8);
+
+  if (!terms.length) return { sql: "", params: [] };
+
+  const fieldClause = CLIENT_SEARCH_SQL_COLUMNS
+    .map((column) => `LOWER(${column}) LIKE ? ESCAPE '\\'`)
+    .join(" OR ");
+  const sql = terms.map(() => `(${fieldClause})`).join(" OR ");
+  const params = terms.flatMap((term) => {
+    const like = `%${escapeLikeTerm(term)}%`;
+    return CLIENT_SEARCH_SQL_COLUMNS.map(() => like);
+  });
+
+  return { sql: `(${sql})`, params };
+}
+
+function buildClientSearchFtsQuery(search: string): string {
+  const terms = Array.from(new Set(
+    search
+      .trim()
+      .split(/[\s,;:|/\\]+/)
+      .map((term) => term.replace(/["*()\-\^:]/g, "").trim())
+      .filter((term) => term.length >= 2 && !/^(AND|OR|NOT|NEAR)$/i.test(term)),
+  )).slice(0, 8);
+
+  return terms.map((term) => `"${term}"*`).join(" OR ");
+}
+
+function getFtsClientSearchCandidateIds(search: string, limit: number): string[] | null {
+  const ftsQuery = buildClientSearchFtsQuery(search);
+  if (!ftsQuery) return [];
+
+  try {
+    return db
+      .query<{ id: string }>(
+        `SELECT id
+         FROM client_search_fts
+         WHERE client_search_fts MATCH ?
+         ORDER BY rank
+         LIMIT ?`,
+      )
+      .all(ftsQuery, limit)
+      .map((row) => row.id)
+      .filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+function fuzzySearchClientRows(rows: any[], search: string): any[] {
+  const query = search.trim();
+  if (!query) return rows;
+
+  const fuse = new Fuse(rows, {
+    keys: CLIENT_SEARCH_KEYS as any,
+    threshold: 0.36,
+    distance: 120,
+    ignoreLocation: true,
+    shouldSort: true,
+  });
+
+  return fuse.search(query).map((result) => result.item);
+}
+
+export function listClients(filters: ListFilters): ListResult {
+  const {
+    page,
+    pageSize,
+    search,
+    sort,
+    statusFilter,
+    osFilter,
+    countryFilter,
+    enrollmentFilter,
+    builtByUserId,
+    requireBuildOwner,
+    allowedClientIds,
+    deniedClientIds,
+    groupFilter,
+    webcamFilter,
+    cpuFilter,
+    gpuFilter,
+    ramMin,
+    ramMax,
+  } = filters;
+  const where: string[] = [];
+  const params: any[] = [];
+  const suspiciousEnrollmentFilter = enrollmentFilter === "suspicious";
+
+  if (statusFilter === "online") {
+    where.push("c.online=1");
+  } else if (statusFilter === "offline") {
+    where.push("c.online=0");
+  }
+
+  if (enrollmentFilter && enrollmentFilter !== "all" && !suspiciousEnrollmentFilter) {
+    if (enrollmentFilter === "pending") {
+      where.push("(c.enrollment_status='pending' OR c.enrollment_status IS NULL)");
+    } else {
+      where.push("c.enrollment_status=?");
+      params.push(enrollmentFilter);
+    }
+  }
+
+  if (osFilter && osFilter !== "all") {
+    if (osFilter === "windows") {
+      where.push("(LOWER(COALESCE(c.os_family, ''))='windows' OR LOWER(COALESCE(c.os, '')) LIKE 'windows%')");
+    } else if (osFilter === "linux") {
+      where.push("(LOWER(COALESCE(c.os_family, ''))='linux' OR LOWER(COALESCE(c.os, '')) LIKE '%linux%')");
+    } else if (osFilter === "mac") {
+      where.push("(LOWER(COALESCE(c.os_family, ''))='mac' OR LOWER(COALESCE(c.os, '')) LIKE '%darwin%' OR LOWER(COALESCE(c.os, '')) LIKE '%mac%')");
+    } else {
+      where.push("c.os=?");
+      params.push(osFilter);
+    }
+  }
+
+  if (countryFilter && countryFilter !== "all") {
+    where.push("UPPER(COALESCE(c.country,'ZZ'))=?");
+    params.push(countryFilter.toUpperCase());
+  }
+
+  if (typeof builtByUserId === "number") {
+    where.push("c.built_by_user_id=?");
+    params.push(builtByUserId);
+  }
+
+  if (requireBuildOwner) {
+    where.push("c.built_by_user_id IS NOT NULL");
+  }
+
+  if (Array.isArray(allowedClientIds)) {
+    if (allowedClientIds.length === 0) {
+      where.push("1=0");
+    } else {
+      where.push(`c.id IN (${allowedClientIds.map(() => "?").join(",")})`);
+      params.push(...allowedClientIds);
+    }
+  }
+
+  if (Array.isArray(deniedClientIds) && deniedClientIds.length > 0) {
+    where.push(`c.id NOT IN (${deniedClientIds.map(() => "?").join(",")})`);
+    params.push(...deniedClientIds);
+  }
+
+  if (groupFilter && groupFilter !== "all") {
+    if (groupFilter === "none") {
+      where.push("c.group_id IS NULL");
+    } else {
+      const gid = Number(groupFilter);
+      if (Number.isFinite(gid)) {
+        where.push("c.group_id=?");
+        params.push(gid);
+      }
+    }
+  }
+
+  const webcamAvailableSql =
+    "(COALESCE(c.webcam_available, 0)=1 OR (c.webcam_devices IS NOT NULL AND c.webcam_devices NOT IN ('', '[]', 'null')))";
+
+  if (webcamFilter && webcamFilter !== "all") {
+    if (webcamFilter === "available") {
+      where.push(webcamAvailableSql);
+    } else if (webcamFilter === "none") {
+      where.push(`NOT ${webcamAvailableSql}`);
+    }
+  }
+
+  if (cpuFilter) {
+    where.push("LOWER(COALESCE(c.cpu, '')) LIKE ?");
+    params.push(`%${cpuFilter.toLowerCase()}%`);
+  }
+
+  if (gpuFilter) {
+    where.push("LOWER(COALESCE(c.gpu, '')) LIKE ?");
+    params.push(`%${gpuFilter.toLowerCase()}%`);
+  }
+
+  if (typeof ramMin === "number") {
+    where.push(`CAST(REPLACE(REPLACE(LOWER(COALESCE(c.ram, '0')), ' gb', ''), ' mb', '') AS REAL) >= ?`);
+    params.push(ramMin);
+  }
+
+  if (typeof ramMax === "number") {
+    where.push(`CAST(REPLACE(REPLACE(LOWER(COALESCE(c.ram, '99999')), ' gb', ''), ' mb', '') AS REAL) <= ?`);
+    params.push(ramMax);
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const needsGroupJoinForFilter =
+    sort === "group_asc" ||
+    sort === "group_desc" ||
+    (groupFilter !== undefined && groupFilter !== "all");
+
+  const orderBy = (() => {
+    const online = "c.online DESC";
+    const bookmark = "c.bookmarked DESC";
+    switch (sort) {
+      case "stable":
+        return `ORDER BY ${online}, ${bookmark}, c.id ASC`;
+      case "ping_asc":
+        return `ORDER BY ${online}, ${bookmark}, c.ping_ms IS NULL, c.ping_ms ASC, c.id ASC`;
+      case "ping_desc":
+        return `ORDER BY ${online}, ${bookmark}, c.ping_ms IS NULL, c.ping_ms DESC, c.id ASC`;
+      case "host_asc":
+        return `ORDER BY ${online}, ${bookmark}, LOWER(COALESCE(c.nickname, c.host)) ASC, c.id ASC`;
+      case "host_desc":
+        return `ORDER BY ${online}, ${bookmark}, LOWER(COALESCE(c.nickname, c.host)) DESC, c.id ASC`;
+      case "country_asc":
+        return `ORDER BY ${online}, ${bookmark}, LOWER(COALESCE(c.country, 'zz')) ASC, c.id ASC`;
+      case "country_desc":
+        return `ORDER BY ${online}, ${bookmark}, LOWER(COALESCE(c.country, 'zz')) DESC, c.id ASC`;
+      case "admin_first":
+        return `ORDER BY ${online}, ${bookmark}, c.is_admin DESC, c.id ASC`;
+      case "elevated_first":
+        return `ORDER BY ${online}, ${bookmark}, CASE WHEN c.elevation IN ('trustedinstaller', 'system', 'admin', 'elevated') OR c.is_admin=1 THEN 1 ELSE 0 END DESC, CASE c.elevation WHEN 'trustedinstaller' THEN 4 WHEN 'system' THEN 3 WHEN 'admin' THEN 2 WHEN 'elevated' THEN 1 ELSE 0 END DESC, c.id ASC`;
+      case "group_asc":
+        return `ORDER BY ${online}, ${bookmark}, g.name IS NULL, LOWER(g.name) ASC, c.id ASC`;
+      case "group_desc":
+        return `ORDER BY ${online}, ${bookmark}, g.name IS NULL, LOWER(g.name) DESC, c.id ASC`;
+      default:
+        return `ORDER BY ${online}, ${bookmark}, c.last_seen DESC, c.id ASC`;
+    }
+  })();
+
+  const offset = (page - 1) * pageSize;
+
+  const clientFields =
+    `c.id, c.hwid, c.role, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.last_seen as lastSeen, c.online, c.ping_ms as pingMs, c.bookmarked, c.build_tag as buildTag, c.built_by_user_id as builtByUserId, c.enrollment_status as enrollmentStatus, c.public_key as publicKey, c.key_fingerprint as keyFingerprint, c.cpu, c.gpu, c.ram, c.battery_percent as batteryPercent, c.battery_charging as batteryCharging, CASE WHEN ${webcamAvailableSql} THEN 1 ELSE 0 END as webcamAvailable, c.webcam_devices as webcamDevices, c.is_admin as isAdmin, c.elevation, c.permissions, c.disconnect_reason as disconnectReason, c.disconnect_detail as disconnectDetail, c.group_id as groupId, c.notifications_muted as notificationsMuted, c.deny_reason as denyReason, c.plugin_meta as pluginMeta`;
+  const searchFields =
+    `c.id, c.hwid, c.ip, c.host, c.os, c.arch, c.version, c.user, c.nickname, c.custom_tag as customTag, c.custom_tag_note as customTagNote, c.monitors, c.country, c.online, c.build_tag as buildTag, c.cpu, c.gpu, c.ram, g.name as groupName`;
+
+  const fetchClientRowsByIds = (ids: string[]): any[] => {
+    if (!ids.length) return [];
+    const placeholders = ids.map(() => "?").join(",");
+    const fullRows = db
+      .query<any>(
+        `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
+         FROM clients c
+         LEFT JOIN client_groups g ON g.id = c.group_id
+         WHERE c.id IN (${placeholders})`,
+      )
+      .all(...ids);
+    const byId = new Map(fullRows.map((row: any) => [row.id, row]));
+    return ids.map((id) => byId.get(id)).filter(Boolean);
+  };
+
+  let rows: any[] | undefined;
+  let totalCount = 0;
+  let onlineCount = 0;
+
+  if (suspiciousEnrollmentFilter && !search) {
+    const candidates = db
+      .query<any>(
+        `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
+         FROM clients c
+         LEFT JOIN client_groups g ON g.id = c.group_id
+         ${whereSql}
+         ${orderBy}`,
+      )
+      .all(...params);
+    const suspiciousSets = getFloodSetsWithCache();
+    const matches = candidates.filter((row: any) => computeClientSuspiciousFlags(row, suspiciousSets).length > 0);
+    totalCount = matches.length;
+    onlineCount = matches.filter((row: any) => row.online === 1).length;
+    rows = matches.slice(offset, offset + pageSize);
+  } else if (search) {
+    const searchWhere = [...where];
+    const searchParams = [...params];
+    const candidateLimit = Math.min(5000, Math.max(1000, offset + pageSize * 8));
+    const ftsCandidateIds = getFtsClientSearchCandidateIds(search, candidateLimit);
+
+    if (ftsCandidateIds) {
+      if (!ftsCandidateIds.length) {
+        rows = [];
+        totalCount = 0;
+        onlineCount = 0;
+      } else {
+        searchWhere.push(`c.id IN (${ftsCandidateIds.map(() => "?").join(",")})`);
+        searchParams.push(...ftsCandidateIds);
+      }
+    } else {
+      const searchCandidate = buildFuzzyCandidateWhere(search);
+      if (searchCandidate.sql) {
+        searchWhere.push(searchCandidate.sql);
+        searchParams.push(...searchCandidate.params);
+      } else {
+        rows = [];
+        totalCount = 0;
+        onlineCount = 0;
+      }
+    }
+
+    if (rows === undefined) {
+      const searchWhereSql = searchWhere.length ? `WHERE ${searchWhere.join(" AND ")}` : "";
+      const candidates = db
+        .query<any>(
+          `SELECT ${searchFields}
+           FROM clients c
+           LEFT JOIN client_groups g ON g.id = c.group_id
+           ${searchWhereSql}
+           ${orderBy}`,
+        )
+        .all(...searchParams);
+      const matches = fuzzySearchClientRows(candidates, search);
+      totalCount = matches.length;
+      onlineCount = matches.filter((row: any) => row.online === 1).length;
+      rows = fetchClientRowsByIds(matches.slice(offset, offset + pageSize).map((row: any) => row.id));
+    }
+  } else {
+    const countJoinSql = needsGroupJoinForFilter ? "LEFT JOIN client_groups g ON g.id = c.group_id" : "";
+    const totalRow = db
+      .query<{ c: number }>(`SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql}`)
+      .get(...params) ?? { c: 0 };
+    const onlineRow = db
+      .query<{ c: number }>(
+        `SELECT COUNT(*) as c FROM clients c ${countJoinSql} ${whereSql ? `${whereSql} AND c.online=1` : "WHERE c.online=1"}`,
+      )
+      .get(...params) ?? { c: 0 };
+    totalCount = totalRow.c;
+    onlineCount = onlineRow.c;
+
+    rows = needsGroupJoinForFilter
+      ? db
+        .query<any>(
+          `SELECT ${clientFields}, g.name as groupName, g.color as groupColor
+           FROM clients c
+           LEFT JOIN client_groups g ON g.id = c.group_id
+           ${whereSql}
+           ${orderBy}
+           LIMIT ? OFFSET ?`,
+        )
+        .all(...params, pageSize, offset)
+      : db
+        .query<any>(
+          `WITH page_clients AS (
+             SELECT ${clientFields}
+             FROM clients c
+             ${whereSql}
+             ${orderBy}
+             LIMIT ? OFFSET ?
+           )
+           SELECT pc.*, g.name as groupName, g.color as groupColor
+           FROM page_clients pc
+           LEFT JOIN client_groups g ON g.id = pc.groupId`,
+        )
+        .all(...params, pageSize, offset);
+  }
+
+  const shouldScanSuspicious = !search && (SUSPICIOUS_SCAN_MAX_CLIENTS === 0 || totalCount <= SUSPICIOUS_SCAN_MAX_CLIENTS);
+  const suspiciousSets = shouldScanSuspicious
+    ? getFloodSetsWithCache()
+    : { floodedHwids: new Set<string>(), floodedHardware: new Set<string>(), floodedIps: new Set<string>() };
+  rows = rows || [];
+  const thumbnailSummaries = getThumbnailSummaries(rows.map((row: any) => row.id));
+
+  const items = rows.map((c: any) => {
+    const thumbnail = thumbnailSummaries.get(c.id);
+    return {
+      id: c.id,
+      hwid: c.hwid,
+      role: (c.role as ClientRole) || "client",
+      ip: c.ip || null,
+      lastSeen: Number(c.lastSeen) || 0,
+      host: c.host,
+      os: c.os || "unknown",
+      arch: c.arch || "arch?",
+      version: c.version || "0",
+      user: c.user,
+      nickname: c.nickname || null,
+      customTag: c.customTag || null,
+      customTagNote: c.customTagNote ?? null,
+      monitors: c.monitors,
+      country: c.country || "ZZ",
+      pingMs: c.pingMs ?? null,
+      online: c.online === 1,
+      bookmarked: c.bookmarked === 1,
+      buildTag: c.buildTag || null,
+      builtByUserId: typeof c.builtByUserId === "number" ? c.builtByUserId : null,
+      enrollmentStatus: c.enrollmentStatus || "pending",
+      publicKey: c.publicKey || null,
+      keyFingerprint: c.keyFingerprint || null,
+      cpu: c.cpu || null,
+      gpu: c.gpu || null,
+      ram: c.ram || null,
+      batteryPercent: typeof c.batteryPercent === "number" ? c.batteryPercent : null,
+      batteryCharging: c.batteryCharging === null || c.batteryCharging === undefined ? null : c.batteryCharging === 1,
+      webcamAvailable: c.webcamAvailable === 1,
+      webcamDevices: c.webcamDevices ? (() => { try { return JSON.parse(c.webcamDevices); } catch { return []; } })() : [],
+      isAdmin: c.isAdmin === 1,
+      elevation: c.elevation || null,
+      permissions: c.permissions ? (() => { try { return JSON.parse(c.permissions); } catch { return null; } })() : null,
+      pluginMeta: c.pluginMeta ? (() => { try { return JSON.parse(c.pluginMeta); } catch { return null; } })() : null,
+      disconnectReason: c.disconnectReason || null,
+      disconnectDetail: c.disconnectDetail || null,
+      groupId: typeof c.groupId === "number" ? c.groupId : null,
+      groupName: c.groupName || null,
+      groupColor: c.groupColor || null,
+      notificationsMuted: c.notificationsMuted === 1,
+      denyReason: c.denyReason || null,
+      hasThumbnail: thumbnail?.hasThumbnail ?? false,
+      thumbnailVersion: thumbnail?.thumbnailVersion ?? 0,
+      suspiciousFlags: shouldScanSuspicious ? computeClientSuspiciousFlags(c, suspiciousSets) : [],
+    };
+  });
+
+  return { page, pageSize, total: totalCount, online: onlineCount, items };
+}
+
+export type ClientMetricsSummary = {
+  total: number;
+  online: number;
+  byOS: Record<string, number>;
+  byCountry: Record<string, number>;
+  byOSOnline: Record<string, number>;
+  byCountryOnline: Record<string, number>;
+};
+
+const CLIENT_METRICS_SUMMARY_TTL_MS = 4_000;
+let clientMetricsSummaryCache: { expiresAt: number; summary: ClientMetricsSummary } | null = null;
+const userClientMetricsSummaryCache = new Map<number, { expiresAt: number; summary: ClientMetricsSummary }>();
+
+function invalidateClientMetricsSummaryCache() {
+  clientMetricsSummaryCache = null;
+  userClientMetricsSummaryCache.clear();
+}
+
+function cloneClientMetricsSummary(summary: ClientMetricsSummary): ClientMetricsSummary {
+  return {
+    total: summary.total,
+    online: summary.online,
+    byOS: { ...summary.byOS },
+    byCountry: { ...summary.byCountry },
+    byOSOnline: { ...summary.byOSOnline },
+    byCountryOnline: { ...summary.byCountryOnline },
+  };
+}
+
+function makeClientMetricsSummary(
+  counts: { total: number | null; online: number | null },
+  osRows: { key: string; total: number; online: number | null }[],
+  countryRows: { key: string; total: number; online: number | null }[],
+): ClientMetricsSummary {
+  const byOS: Record<string, number> = {};
+  const byOSOnline: Record<string, number> = {};
+  for (const row of osRows) {
+    byOS[row.key] = Number(row.total) || 0;
+    byOSOnline[row.key] = Number(row.online) || 0;
+  }
+
+  const byCountry: Record<string, number> = {};
+  const byCountryOnline: Record<string, number> = {};
+  for (const row of countryRows) {
+    byCountry[row.key] = Number(row.total) || 0;
+    byCountryOnline[row.key] = Number(row.online) || 0;
+  }
+
+  return {
+    total: Number(counts.total) || 0,
+    online: Number(counts.online) || 0,
+    byOS,
+    byCountry,
+    byOSOnline,
+    byCountryOnline,
+  };
+}
+
+export function getClientMetricsSummary(): ClientMetricsSummary {
+  const now = Date.now();
+  if (clientMetricsSummaryCache && clientMetricsSummaryCache.expiresAt > now) {
+    return cloneClientMetricsSummary(clientMetricsSummaryCache.summary);
+  }
+
+  const counts = db
+    .query<{ total: number; online: number }>(
+      `SELECT COUNT(*) as total, SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online FROM clients`,
+    )
+    .get() ?? { total: 0, online: 0 };
+
+  const osRows = db
+    .query<{ key: string; total: number; online: number }>(
+      `SELECT
+         COALESCE(NULLIF(os, ''), 'unknown') as key,
+         COUNT(*) as total,
+         SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online
+       FROM clients
+       WHERE COALESCE(enrollment_status, 'pending')='approved'
+       GROUP BY COALESCE(NULLIF(os, ''), 'unknown')`,
+    )
+    .all();
+
+  const countryRows = db
+    .query<{ key: string; total: number; online: number }>(
+      `SELECT
+         COALESCE(NULLIF(country, ''), 'ZZ') as key,
+         COUNT(*) as total,
+         SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online
+       FROM clients
+       GROUP BY COALESCE(NULLIF(country, ''), 'ZZ')`,
+    )
+    .all();
+
+  const summary = makeClientMetricsSummary(counts, osRows, countryRows);
+  clientMetricsSummaryCache = {
+    expiresAt: now + CLIENT_METRICS_SUMMARY_TTL_MS,
+    summary,
+  };
+  return cloneClientMetricsSummary(summary);
+}
+
+export function getClientMetricsSummaryForUser(userId: number): ClientMetricsSummary {
+  const now = Date.now();
+  const cached = userClientMetricsSummaryCache.get(userId);
+  if (cached && cached.expiresAt > now) {
+    return cloneClientMetricsSummary(cached.summary);
+  }
+
+  const filter = `WHERE built_by_user_id = ?`;
+
+  const counts = db
+    .query<{ total: number; online: number }>(
+      `SELECT COUNT(*) as total, SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online FROM clients ${filter}`,
+    )
+    .get(userId) ?? { total: 0, online: 0 };
+
+  const osRows = db
+    .query<{ key: string; total: number; online: number }>(
+      `SELECT
+         COALESCE(NULLIF(os, ''), 'unknown') as key,
+         COUNT(*) as total,
+         SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online
+       FROM clients ${filter} AND COALESCE(enrollment_status, 'pending')='approved'
+       GROUP BY COALESCE(NULLIF(os, ''), 'unknown')`,
+    )
+    .all(userId);
+
+  const countryRows = db
+    .query<{ key: string; total: number; online: number }>(
+      `SELECT
+         COALESCE(NULLIF(country, ''), 'ZZ') as key,
+         COUNT(*) as total,
+         SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online
+       FROM clients ${filter}
+       GROUP BY COALESCE(NULLIF(country, ''), 'ZZ')`,
+    )
+    .all(userId);
+
+  const summary = makeClientMetricsSummary(counts, osRows, countryRows);
+  userClientMetricsSummaryCache.set(userId, {
+    expiresAt: now + CLIENT_METRICS_SUMMARY_TTL_MS,
+    summary,
+  });
+  return cloneClientMetricsSummary(summary);
+}
+
+export function getOnlineClientCountForUser(userId: number): number {
+  const row = db
+    .query<{ online: number }>(
+      `SELECT SUM(CASE WHEN online=1 THEN 1 ELSE 0 END) as online FROM clients WHERE built_by_user_id = ?`,
+    )
+    .get(userId);
+  return Number(row?.online) || 0;
+}
+
+export function countBuildsForUser(userId: number): number {
+  const row = db
+    .query<{ c: number }>(`SELECT COUNT(*) as c FROM builds WHERE built_by_user_id = ?`)
+    .get(userId);
+  return row?.c ?? 0;
+}
+
+export function getOldestBuildForUser(userId: number): BuildRecord | null {
+  const row = db
+    .query<any>(`SELECT * FROM builds WHERE built_by_user_id = ? ORDER BY start_time ASC LIMIT 1`)
+    .get(userId);
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    startTime: row.start_time,
+    expiresAt: row.expires_at,
+    files: JSON.parse(row.files),
+    buildTag: row.build_tag || undefined,
+    builtByUserId: row.built_by_user_id || undefined,
+  };
+}
+
+export type AutoScriptTrigger = "on_connect" | "on_first_connect" | "on_connect_once";
+
+export type AutoScript = {
+  id: string;
+  name: string;
+  trigger: AutoScriptTrigger;
+  script: string;
+  scriptType: string;
+  enabled: boolean;
+  osFilter: string[];
+  createdByUserId: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function mapAutoScriptRow(row: any): AutoScript {
+  let osFilter: string[] = [];
+  try {
+    const parsed = JSON.parse(row.os_filter || "[]");
+    osFilter = Array.isArray(parsed) ? parsed : [];
+  } catch { }
+  return {
+    id: row.id,
+    name: row.name,
+    trigger: row.trigger as AutoScriptTrigger,
+    script: row.script,
+    scriptType: row.script_type,
+    enabled: row.enabled === 1,
+    osFilter,
+    createdByUserId: row.created_by_user_id == null ? null : Number(row.created_by_user_id),
+    createdAt: Number(row.created_at) || 0,
+    updatedAt: Number(row.updated_at) || 0,
+  };
+}
+
+export function listAutoScripts(): AutoScript[] {
+  const rows = db.query<any>(`SELECT * FROM auto_scripts ORDER BY created_at DESC`).all();
+  return rows.map(mapAutoScriptRow);
+}
+
+export function listAutoScriptsForUser(userId: number, role: string): AutoScript[] {
+  if (role === "admin") return listAutoScripts();
+  const rows = db
+    .query<any>(`SELECT * FROM auto_scripts WHERE created_by_user_id=? ORDER BY created_at DESC`)
+    .all(userId);
+  return rows.map(mapAutoScriptRow);
+}
+
+export function getAutoScriptsByTrigger(trigger: AutoScriptTrigger): AutoScript[] {
+  const rows = db
+    .query<any>(
+      `SELECT * FROM auto_scripts WHERE trigger=? AND enabled=1 ORDER BY created_at ASC`,
+    )
+    .all(trigger);
+  return rows.map(mapAutoScriptRow);
+}
+
+export function getAutoScript(id: string): AutoScript | null {
+  const row = db.query<any>(`SELECT * FROM auto_scripts WHERE id=?`).get(id);
+  return row ? mapAutoScriptRow(row) : null;
+}
+
+export function canUserManageAutoScript(userId: number, role: string, scriptId: string): boolean {
+  if (role === "admin") return true;
+  const row = db
+    .query<{ created_by_user_id: number | null }>(`SELECT created_by_user_id FROM auto_scripts WHERE id=?`)
+    .get(scriptId);
+  return row?.created_by_user_id != null && Number(row.created_by_user_id) === userId;
+}
+
+export function createAutoScript(input: {
+  id: string;
+  name: string;
+  trigger: AutoScriptTrigger;
+  script: string;
+  scriptType: string;
+  enabled: boolean;
+  osFilter: string[];
+  createdByUserId: number;
+}): AutoScript {
+  const now = Date.now();
+  db.run(
+    `INSERT INTO auto_scripts (id, name, trigger, script, script_type, enabled, os_filter, created_by_user_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ,
+    input.id,
+    input.name,
+    input.trigger,
+    input.script,
+    input.scriptType,
+    input.enabled ? 1 : 0,
+    JSON.stringify(input.osFilter ?? []),
+    input.createdByUserId,
+    now,
+    now,
+  );
+  return getAutoScript(input.id)!;
+}
+
+export function updateAutoScript(
+  id: string,
+  input: Partial<{
+    name: string;
+    trigger: AutoScriptTrigger;
+    script: string;
+    scriptType: string;
+    enabled: boolean;
+    osFilter: string[];
+  }>,
+): AutoScript | null {
+  const current = getAutoScript(id);
+  if (!current) return null;
+
+  const next = {
+    name: input.name ?? current.name,
+    trigger: (input.trigger ?? current.trigger) as AutoScriptTrigger,
+    script: input.script ?? current.script,
+    scriptType: input.scriptType ?? current.scriptType,
+    enabled: typeof input.enabled === "boolean" ? input.enabled : current.enabled,
+    osFilter: Array.isArray(input.osFilter) ? input.osFilter : current.osFilter,
+  };
+
+  db.run(
+    `UPDATE auto_scripts SET name=?, trigger=?, script=?, script_type=?, enabled=?, os_filter=?, updated_at=? WHERE id=?`
+    ,
+    next.name,
+    next.trigger,
+    next.script,
+    next.scriptType,
+    next.enabled ? 1 : 0,
+    JSON.stringify(next.osFilter),
+    Date.now(),
+    id,
+  );
+
+  return getAutoScript(id);
+}
+
+export function deleteAutoScript(id: string): boolean {
+  const result = db.run(`DELETE FROM auto_scripts WHERE id=?`, id);
+  db.run(`DELETE FROM auto_script_runs WHERE script_id=?`, id);
+  return (result as any)?.changes ? (result as any).changes > 0 : true;
+}
+
+export function hasAutoScriptRun(scriptId: string, clientId: string): boolean {
+  const row = db
+    .query<any>(
+      `SELECT script_id FROM auto_script_runs WHERE script_id=? AND client_id=?`,
+    )
+    .get(scriptId, clientId);
+  return !!row?.script_id;
+}
+
+export function recordAutoScriptRun(scriptId: string, clientId: string) {
+  db.run(
+    `INSERT OR REPLACE INTO auto_script_runs (script_id, client_id, ts) VALUES (?, ?, ?)`
+    ,
+    scriptId,
+    clientId,
+    Date.now(),
+  );
+}
+
+export function clientExists(id: string): boolean {
+  const row = db.query<any>(`SELECT id FROM clients WHERE id=?`).get(id);
+  return !!row?.id;
+}
+
+export function getClientPublicKeyById(id: string): string | null {
+  const row = db.query<{ public_key: string | null }>(`SELECT public_key FROM clients WHERE id=? LIMIT 1`).get(id);
+  return row?.public_key ?? null;
+}
+
+export function listDistinctCountries(): { code: string; count: number }[] {
+  const rows = db
+    .query<{ code: string; count: number }>(
+      `SELECT UPPER(COALESCE(NULLIF(country, ''), 'ZZ')) as code, COUNT(*) as count
+       FROM clients
+       GROUP BY UPPER(COALESCE(NULLIF(country, ''), 'ZZ'))
+       ORDER BY count DESC`,
+    )
+    .all();
+  return rows.map((r) => ({ code: r.code, count: Number(r.count) || 0 }));
+}
+
+export function listDistinctHardware(): { cpus: string[]; gpus: string[] } {
+  const cpuRows = db
+    .query<{ cpu: string }>(
+      `SELECT DISTINCT cpu FROM clients WHERE cpu IS NOT NULL AND cpu != '' ORDER BY cpu`,
+    )
+    .all();
+  const gpuRows = db
+    .query<{ gpu: string }>(
+      `SELECT DISTINCT gpu FROM clients WHERE gpu IS NOT NULL AND gpu != '' ORDER BY gpu`,
+    )
+    .all();
+  return { cpus: cpuRows.map((r) => r.cpu), gpus: gpuRows.map((r) => r.gpu) };
+}
+
+export function setClientBookmark(id: string, bookmarked: boolean): boolean {
+  const result = db.run(
+    `UPDATE clients SET bookmarked=? WHERE id=?`,
+    bookmarked ? 1 : 0,
+    id,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function getClientBookmark(id: string): boolean {
+  const row = db.query<{ bookmarked: number }>(`SELECT bookmarked FROM clients WHERE id=?`).get(id);
+  return row?.bookmarked === 1;
+}
+
+export function setClientNotificationsMuted(id: string, muted: boolean): boolean {
+  const result = db.run(
+    `UPDATE clients SET notifications_muted=? WHERE id=?`,
+    muted ? 1 : 0,
+    id,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function setClientWebcamInfo(
+  id: string,
+  webcamAvailable: boolean,
+  webcamDevices: { index: number; name: string; maxFps?: number }[],
+): boolean {
+  const result = db.run(
+    `UPDATE clients SET webcam_available=?, webcam_devices=? WHERE id=?`,
+    webcamAvailable ? 1 : 0,
+    JSON.stringify(webcamDevices),
+    id,
+  );
+  if (((result as any)?.changes || 0) > 0) invalidateClientMetricsSummaryCache();
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function isClientNotificationsMuted(id: string): boolean {
+  const row = db.query<{ notifications_muted: number }>(
+    `SELECT notifications_muted FROM clients WHERE id=?`,
+  ).get(id);
+  return row?.notifications_muted === 1;
+}
+
+export interface BuildProfileRecord {
+  userId: number;
+  name: string;
+  profileJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function listBuildProfilesForUser(userId: number): BuildProfileRecord[] {
+  return db
+    .query<any>(
+      `SELECT user_id, name, profile_json, created_at, updated_at
+       FROM build_profiles
+       WHERE user_id = ?
+       ORDER BY updated_at DESC, name ASC`,
+    )
+    .all(userId)
+    .map((row: any) => ({
+      userId: row.user_id,
+      name: row.name,
+      profileJson: row.profile_json,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+}
+
+export function saveBuildProfileForUser(userId: number, name: string, profileJson: string): void {
+  const now = Date.now();
+  db.run(
+    `INSERT INTO build_profiles (user_id, name, profile_json, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, name) DO UPDATE SET
+       profile_json = excluded.profile_json,
+       updated_at = excluded.updated_at`,
+    userId,
+    name,
+    profileJson,
+    now,
+    now,
+  );
+}
+
+export function deleteBuildProfileForUser(userId: number, name: string): boolean {
+  const result = db.run(
+    `DELETE FROM build_profiles WHERE user_id = ? AND name = ?`,
+    userId,
+    name,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export interface SharedUiSettingsRecord {
+  scope: string;
+  settingsJson: string;
+  updatedByUserId: number | null;
+  updatedAt: number;
+}
+
+export function getSharedUiSettings(scope: string): SharedUiSettingsRecord | null {
+  const row = db
+    .query<any>(
+      `SELECT scope, settings_json, updated_by_user_id, updated_at
+       FROM shared_ui_settings
+       WHERE scope = ?`,
+    )
+    .get(scope);
+
+  if (!row) return null;
+  return {
+    scope: String(row.scope || ""),
+    settingsJson: String(row.settings_json || "{}"),
+    updatedByUserId: row.updated_by_user_id == null ? null : Number(row.updated_by_user_id),
+    updatedAt: Number(row.updated_at) || 0,
+  };
+}
+
+export function saveSharedUiSettings(
+  scope: string,
+  settingsJson: string,
+  updatedByUserId: number,
+): SharedUiSettingsRecord {
+  const now = Date.now();
+  db.run(
+    `INSERT INTO shared_ui_settings (scope, settings_json, updated_by_user_id, updated_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(scope) DO UPDATE SET
+       settings_json = excluded.settings_json,
+       updated_by_user_id = excluded.updated_by_user_id,
+       updated_at = excluded.updated_at`,
+    scope,
+    settingsJson,
+    updatedByUserId,
+    now,
+  );
+
+  return {
+    scope,
+    settingsJson,
+    updatedByUserId,
+    updatedAt: now,
+  };
+}
+
+export interface SavedScriptRecord {
+  id: string;
+  userId: number;
+  name: string;
+  content: string;
+  scriptType: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export function listSavedScriptsForUser(userId: number): SavedScriptRecord[] {
+  return db
+    .query<any>(
+      `SELECT id, user_id, name, content, script_type, created_at, updated_at
+       FROM saved_scripts
+       WHERE user_id = ?
+       ORDER BY updated_at DESC`,
+    )
+    .all(userId)
+    .map((row: any) => ({
+      id: row.id,
+      userId: row.user_id,
+      name: row.name,
+      content: row.content,
+      scriptType: row.script_type,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+}
+
+export function saveSavedScript(
+  id: string,
+  userId: number,
+  name: string,
+  content: string,
+  scriptType: string,
+): SavedScriptRecord | null {
+  const owner = db
+    .query<{ user_id: number }>(
+      `SELECT user_id FROM saved_scripts WHERE id = ?`,
+    )
+    .get(id);
+  if (owner && owner.user_id !== userId) {
+    return null;
+  }
+  const now = Date.now();
+  db.run(
+    `INSERT INTO saved_scripts (id, user_id, name, content, script_type, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       content = excluded.content,
+       script_type = excluded.script_type,
+       updated_at = excluded.updated_at
+     WHERE saved_scripts.user_id = excluded.user_id`,
+    id,
+    userId,
+    name,
+    content,
+    scriptType,
+    now,
+    now,
+  );
+  return { id, userId, name, content, scriptType, createdAt: now, updatedAt: now };
+}
+
+export function deleteSavedScript(userId: number, scriptId: string): boolean {
+  const result = db.run(
+    `DELETE FROM saved_scripts WHERE id = ? AND user_id = ?`,
+    scriptId,
+    userId,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export interface BuildRecord {
+  id: string;
+  status: string;
+  startTime: number;
+  expiresAt: number;
+  files: Array<{
+    name: string;
+    filename: string;
+    platform: string;
+    version?: string;
+    size: number;
+  }>;
+  buildTag?: string;
+  builtByUserId?: number;
+  initialClientTag?: string;
+  blocked?: boolean;
+}
+
+export function saveBuild(build: BuildRecord) {
+  db.run(
+    `INSERT OR REPLACE INTO builds (id, status, start_time, expires_at, files, build_tag, built_by_user_id, initial_client_tag)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    build.id,
+    build.status,
+    build.startTime,
+    build.expiresAt,
+    JSON.stringify(build.files),
+    build.buildTag || null,
+    build.builtByUserId || null,
+    build.initialClientTag || null,
+  );
+}
+
+function mapBuildRow(row: any): BuildRecord {
+  return {
+    id: row.id,
+    status: row.status,
+    startTime: row.start_time,
+    expiresAt: row.expires_at,
+    files: JSON.parse(row.files),
+    buildTag: row.build_tag || undefined,
+    builtByUserId: row.built_by_user_id || undefined,
+    initialClientTag: row.initial_client_tag || undefined,
+    blocked: row.blocked === 1,
+  };
+}
+
+export function getBuild(id: string): BuildRecord | null {
+  const row = db.query<any>(`SELECT * FROM builds WHERE id = ?`).get(id);
+  if (!row) return null;
+  return mapBuildRow(row);
+}
+
+export function getBuildByTag(buildTag: string): BuildRecord | null {
+  const row = db.query<any>(`SELECT * FROM builds WHERE build_tag = ?`).get(buildTag);
+  if (!row) return null;
+  return mapBuildRow(row);
+}
+
+export function isBuildTagBlocked(buildTag: string): boolean {
+  if (!buildTag) return false;
+  const row = db.query<{ blocked: number }>(
+    `SELECT blocked FROM builds WHERE build_tag = ?`,
+  ).get(buildTag);
+  return !!row && row.blocked === 1;
+}
+
+export function setBuildBlocked(buildId: string, blocked: boolean): boolean {
+  const result = db.run(
+    `UPDATE builds SET blocked = ? WHERE id = ?`,
+    blocked ? 1 : 0,
+    buildId,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function listClientIdsByBuildTag(buildTag: string): string[] {
+  if (!buildTag) return [];
+  const rows = db.query<{ id: string }>(
+    `SELECT id FROM clients WHERE build_tag = ?`,
+  ).all(buildTag);
+  return rows.map((r) => r.id);
+}
+
+export function recordBuildClaim(buildId: string, keyFingerprint: string): boolean {
+  if (!buildId || !keyFingerprint) return false;
+  try {
+    const result = db.run(
+      `INSERT OR IGNORE INTO build_claims (build_id, key_fingerprint, claimed_at) VALUES (?, ?, ?)`,
+      buildId,
+      keyFingerprint,
+      Date.now(),
+    );
+    return ((result as any)?.changes || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Number of distinct agent fingerprints that have ever claimed this build's tag. */
+export function countBuildClaims(buildId: string): number {
+  if (!buildId) return 0;
+  const row = db.query<{ count: number }>(
+    `SELECT COUNT(*) as count FROM build_claims WHERE build_id = ?`,
+  ).get(buildId);
+  return row?.count ?? 0;
+}
+
+/** Batch helper — returns Map<buildId, claimCount> for the given build IDs. */
+export function countBuildClaimsBatch(buildIds: string[]): Map<string, number> {
+  const out = new Map<string, number>();
+  if (buildIds.length === 0) return out;
+  // SQLite has a host-parameter limit (~999 by default); chunk to be safe.
+  for (let i = 0; i < buildIds.length; i += 500) {
+    const chunk = buildIds.slice(i, i + 500);
+    const placeholders = chunk.map(() => "?").join(",");
+    const rows = db.query<{ build_id: string; count: number }>(
+      `SELECT build_id, COUNT(*) as count FROM build_claims WHERE build_id IN (${placeholders}) GROUP BY build_id`,
+    ).all(...chunk);
+    for (const r of rows) out.set(r.build_id, r.count);
+  }
+  // Ensure every requested ID is in the map (default 0).
+  for (const id of buildIds) if (!out.has(id)) out.set(id, 0);
+  return out;
+}
+
+export function getAllBuilds(userId?: number, role?: string): BuildRecord[] {
+  if (role !== undefined && role !== "admin") {
+    if (userId == null) {
+      return [];
+    }
+    const rows = db
+      .query<any>(`SELECT * FROM builds WHERE built_by_user_id = ? ORDER BY start_time DESC`)
+      .all(userId);
+    return rows.map(mapBuildRow);
+  }
+  const rows = db
+    .query<any>("SELECT * FROM builds ORDER BY start_time DESC")
+    .all();
+  return rows.map(mapBuildRow);
+}
+
+export function deleteExpiredBuilds() {
+  const now = Date.now();
+  db.run(`DELETE FROM builds WHERE expires_at <= ?`, now);
+}
+
+export function deleteBuild(id: string) {
+  db.run(`DELETE FROM builds WHERE id = ?`, id);
+}
+
+export interface NotificationScreenshotRecord {
+  id: string;
+  notificationId: string;
+  clientId: string;
+  ts: number;
+  format: string;
+  width?: number;
+  height?: number;
+  bytes: Uint8Array;
+}
+
+export function saveNotificationScreenshot(record: NotificationScreenshotRecord) {
+  db.run(
+    `INSERT OR REPLACE INTO notification_screenshots
+      (id, notification_id, client_id, ts, format, width, height, bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ,
+    record.id,
+    record.notificationId,
+    record.clientId,
+    record.ts,
+    record.format,
+    record.width ?? null,
+    record.height ?? null,
+    record.bytes,
+  );
+}
+
+export function getNotificationScreenshot(notificationId: string): NotificationScreenshotRecord | null {
+  const row = db
+    .query<any>(
+      `SELECT * FROM notification_screenshots WHERE notification_id = ? ORDER BY ts DESC LIMIT 1`,
+    )
+    .get(notificationId);
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    notificationId: row.notification_id,
+    clientId: row.client_id,
+    ts: row.ts,
+    format: row.format,
+    width: row.width ?? undefined,
+    height: row.height ?? undefined,
+    bytes: row.bytes,
+  };
+}
+
+export type NotificationRow = {
+  id: string;
+  clientId: string;
+  host?: string;
+  user?: string;
+  os?: string;
+  title: string;
+  process?: string;
+  processPath?: string;
+  detail?: string;
+  pid?: number;
+  keyword?: string;
+  category: string;
+  ts: number;
+  screenshotId?: string;
+};
+
+export function saveNotification(record: NotificationRow) {
+  db.run(
+    `INSERT OR REPLACE INTO notifications
+      (id, client_id, host, user, os, title, process, process_path, detail, pid, keyword, category, ts, screenshot_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    record.id,
+    record.clientId,
+    record.host ?? null,
+    record.user ?? null,
+    record.os ?? null,
+    record.title,
+    record.process ?? null,
+    record.processPath ?? null,
+    record.detail ?? null,
+    record.pid ?? null,
+    record.keyword ?? null,
+    record.category,
+    record.ts,
+    record.screenshotId ?? null,
+  );
+}
+
+export function updateNotificationScreenshotId(notificationId: string, screenshotId: string) {
+  db.run(
+    `UPDATE notifications SET screenshot_id = ? WHERE id = ?`,
+    screenshotId,
+    notificationId,
+  );
+}
+
+export function getNotificationHistory(limit: number = 500): NotificationRow[] {
+  const rows = db
+    .query<any>(`SELECT * FROM notifications ORDER BY ts DESC LIMIT ?`)
+    .all(limit);
+  return rows.map((row: any) => ({
+    id: row.id,
+    clientId: row.client_id,
+    host: row.host ?? undefined,
+    user: row.user ?? undefined,
+    os: row.os ?? undefined,
+    title: row.title,
+    process: row.process ?? undefined,
+    processPath: row.process_path ?? undefined,
+    detail: row.detail ?? undefined,
+    pid: row.pid ?? undefined,
+    keyword: row.keyword ?? undefined,
+    category: row.category,
+    ts: row.ts,
+    screenshotId: row.screenshot_id ?? undefined,
+  }));
+}
+
+const NOTIFICATION_RETENTION_DAYS = 3;
+const NOTIFICATION_RETENTION_MS = NOTIFICATION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+
+export function pruneOldNotifications() {
+  const cutoff = Date.now() - NOTIFICATION_RETENTION_MS;
+  db.run(`DELETE FROM notification_screenshots WHERE notification_id IN (SELECT id FROM notifications WHERE ts < ?)`, cutoff);
+  db.run(`DELETE FROM notification_screenshots WHERE ts < ?`, cutoff);
+  db.run(`DELETE FROM notification_screenshots WHERE notification_id NOT IN (SELECT id FROM notifications)`);
+  const result = db.run(`DELETE FROM notifications WHERE ts < ?`, cutoff);
+  if (result.changes > 0) {
+    console.log(`[db] pruned ${result.changes} notifications older than ${NOTIFICATION_RETENTION_DAYS} days`);
+  }
+}
+
+export function clearNotifications() {
+  db.run(`DELETE FROM notifications`);
+  db.run(`DELETE FROM notification_screenshots`);
+  console.log("[db] cleared all notifications and screenshots");
+}
+
+export function deleteNotificationsForClient(clientId: string): number {
+  db.run(`DELETE FROM notification_screenshots WHERE client_id = ?`, clientId);
+  const result = db.run(`DELETE FROM notifications WHERE client_id = ?`, clientId);
+  return (result as any)?.changes || 0;
+}
+
+export function getClientEnrollmentStatus(id: string): string | null {
+  const row = db
+    .query<{ enrollment_status: string }>(
+      `SELECT enrollment_status FROM clients WHERE id=?`,
+    )
+    .get(id);
+  return row?.enrollment_status ?? null;
+}
+
+export function setClientEnrollmentStatus(
+  id: string,
+  status: "approved" | "denied" | "pending",
+  approvedBy?: string,
+  denyReason?: string,
+): boolean {
+  const result = db.run(
+    `UPDATE clients SET enrollment_status=?, enrolled_at=?, enrolled_by=?, deny_reason=? WHERE id=?`,
+    status,
+    status === "approved" ? Date.now() : null,
+    status === "approved" ? (approvedBy ?? null) : null,
+    status === "denied" ? (denyReason ?? null) : null,
+    id,
+  );
+  const changed = ((result as any)?.changes || 0) > 0;
+  if (changed) invalidateClientMetricsSummaryCache();
+  return changed;
+}
+
+export function lookupClientByPublicKey(
+  publicKey: string,
+): { id: string; enrollmentStatus: string } | null {
+  const row = db
+    .query<{ id: string; enrollment_status: string }>(
+      `SELECT id, enrollment_status FROM clients WHERE public_key=? LIMIT 1`,
+    )
+    .get(publicKey);
+  if (!row) return null;
+  return { id: row.id, enrollmentStatus: row.enrollment_status };
+}
+
+export function getEnrollmentStats(opts?: {
+  allowedClientIds?: string[];
+  deniedClientIds?: string[];
+  builtByUserId?: number;
+  requireBuildOwner?: boolean;
+}): {
+  pending: number;
+  approved: number;
+  denied: number;
+  suspicious: number;
+} {
+  let sql = `SELECT COALESCE(enrollment_status,'pending') as status, COUNT(*) as c FROM clients`;
+  const params: any[] = [];
+
+  const where: string[] = [];
+  if (opts?.allowedClientIds) {
+    if (opts.allowedClientIds.length === 0) return { pending: 0, approved: 0, denied: 0, suspicious: 0 };
+    const placeholders = opts.allowedClientIds.map(() => "?").join(",");
+    where.push(`id IN (${placeholders})`);
+    params.push(...opts.allowedClientIds);
+  }
+  if (opts?.deniedClientIds && opts.deniedClientIds.length > 0) {
+    const placeholders = opts.deniedClientIds.map(() => "?").join(",");
+    where.push(`id NOT IN (${placeholders})`);
+    params.push(...opts.deniedClientIds);
+  }
+  if (typeof opts?.builtByUserId === "number") {
+    where.push("built_by_user_id = ?");
+    params.push(opts.builtByUserId);
+  }
+  if (opts?.requireBuildOwner) {
+    where.push("built_by_user_id IS NOT NULL");
+  }
+
+  if (where.length > 0) {
+    sql += ` WHERE ${where.join(" AND ")}`;
+  }
+
+  sql += ` GROUP BY enrollment_status`;
+
+  const rows = db.query<{ status: string; c: number }>(sql).all(...params);
+  const stats = { pending: 0, approved: 0, denied: 0, suspicious: 0 };
+  for (const r of rows) {
+    if (r.status === "approved") stats.approved = Number(r.c);
+    else if (r.status === "denied") stats.denied = Number(r.c);
+    else stats.pending = Number(r.c);
+  }
+
+  const suspiciousSql =
+    `SELECT id, hwid, cpu, gpu, ram, os, host, user, ip, monitors FROM clients${where.length > 0 ? ` WHERE ${where.join(" AND ")}` : ""}`;
+  const suspiciousSets = getFloodSetsWithCache();
+  const suspiciousRows = db.query<any>(suspiciousSql).all(...params);
+  stats.suspicious = suspiciousRows.filter((row: any) => computeClientSuspiciousFlags(row, suspiciousSets).length > 0).length;
+
+  return stats;
+}
+
+export interface PushSubscriptionRecord {
+  id: number;
+  userId: number;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  createdAt: number;
+}
+
+export function savePushSubscription(userId: number, endpoint: string, p256dh: string, auth: string): void {
+  db.run(
+    `INSERT OR REPLACE INTO push_subscriptions (user_id, endpoint, p256dh, auth, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+    userId, endpoint, p256dh, auth, Date.now(),
+  );
+}
+
+export function deletePushSubscription(endpoint: string): void {
+  db.run(`DELETE FROM push_subscriptions WHERE endpoint=?`, endpoint);
+}
+
+export function deletePushSubscriptionForUser(userId: number, endpoint: string): boolean {
+  const result = db.run(
+    `DELETE FROM push_subscriptions WHERE endpoint=? AND user_id=?`,
+    endpoint,
+    userId,
+  );
+  return ((result as any)?.changes || 0) > 0;
+}
+
+export function deletePushSubscriptionsByUser(userId: number): void {
+  db.run(`DELETE FROM push_subscriptions WHERE user_id=?`, userId);
+}
+
+export function getPushSubscriptionsByUser(userId: number): PushSubscriptionRecord[] {
+  return db
+    .query<any>(`SELECT * FROM push_subscriptions WHERE user_id=?`)
+    .all(userId)
+    .map((r: any) => ({
+      id: r.id,
+      userId: r.user_id,
+      endpoint: r.endpoint,
+      p256dh: r.p256dh,
+      auth: r.auth,
+      createdAt: Number(r.created_at) || 0,
+    }));
+}
+
+export function getAllPushSubscriptions(): PushSubscriptionRecord[] {
+  return db
+    .query<any>(`SELECT * FROM push_subscriptions`)
+    .all()
+    .map((r: any) => ({
+      id: r.id,
+      userId: r.user_id,
+      endpoint: r.endpoint,
+      p256dh: r.p256dh,
+      auth: r.auth,
+      createdAt: Number(r.created_at) || 0,
+    }));
+}
+
+export function getPendingClients(opts?: {
+  allowedClientIds?: string[];
+  deniedClientIds?: string[];
+  builtByUserId?: number;
+  requireBuildOwner?: boolean;
+}): {
+  id: string;
+  host: string | null;
+  os: string | null;
+  user: string | null;
+  ip: string | null;
+  country: string | null;
+  publicKey: string | null;
+  keyFingerprint: string | null;
+  lastSeen: number;
+}[] {
+  let sql = `SELECT id, host, os, user, ip, country, public_key as publicKey, key_fingerprint as keyFingerprint, last_seen as lastSeen
+       FROM clients WHERE (enrollment_status='pending' OR enrollment_status IS NULL)`;
+  const params: any[] = [];
+
+  if (opts?.allowedClientIds) {
+    if (opts.allowedClientIds.length === 0) return [];
+    const placeholders = opts.allowedClientIds.map(() => "?").join(",");
+    sql += ` AND id IN (${placeholders})`;
+    params.push(...opts.allowedClientIds);
+  }
+  if (opts?.deniedClientIds && opts.deniedClientIds.length > 0) {
+    const placeholders = opts.deniedClientIds.map(() => "?").join(",");
+    sql += ` AND id NOT IN (${placeholders})`;
+    params.push(...opts.deniedClientIds);
+  }
+  if (typeof opts?.builtByUserId === "number") {
+    sql += ` AND built_by_user_id = ?`;
+    params.push(opts.builtByUserId);
+  }
+  if (opts?.requireBuildOwner) {
+    sql += ` AND built_by_user_id IS NOT NULL`;
+  }
+
+  sql += ` ORDER BY last_seen DESC`;
+
+  return db
+    .query<any>(sql)
+    .all(...params)
+    .map((r: any) => ({
+      id: r.id,
+      host: r.host,
+      os: r.os,
+      user: r.user,
+      ip: r.ip,
+      country: r.country,
+      publicKey: r.publicKey,
+      keyFingerprint: r.keyFingerprint,
+      lastSeen: Number(r.lastSeen) || 0,
+    }));
+}
+
+export function getClientBuildOwnership(
+  id: string,
+): { buildTag: string | null; builtByUserId: number | null } | null {
+  const row = db
+    .query<{ build_tag: string | null; built_by_user_id: number | null }>(
+      `SELECT build_tag, built_by_user_id FROM clients WHERE id=?`,
+    )
+    .get(id);
+  if (!row) return null;
+  return {
+    buildTag: row.build_tag ?? null,
+    builtByUserId:
+      typeof row.built_by_user_id === "number" ? row.built_by_user_id : null,
+  };
+}
+
+export type AutoDeployTrigger = "on_connect" | "on_first_connect" | "on_connect_once";
+
+export type AutoDeploy = {
+  id: string;
+  name: string;
+  trigger: AutoDeployTrigger;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  fileOs: string;
+  args: string;
+  hideWindow: boolean;
+  enabled: boolean;
+  osFilter: string[];
+  createdByUserId: number | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+function mapAutoDeployRow(row: any): AutoDeploy {
+  let osFilter: string[] = [];
+  try {
+    const parsed = JSON.parse(row.os_filter || "[]");
+    osFilter = Array.isArray(parsed) ? parsed : [];
+  } catch { }
+  return {
+    id: row.id,
+    name: row.name,
+    trigger: row.trigger as AutoDeployTrigger,
+    filePath: row.file_path,
+    fileName: row.file_name,
+    fileSize: Number(row.file_size) || 0,
+    fileOs: row.file_os || "unknown",
+    args: row.args || "",
+    hideWindow: row.hide_window === 1,
+    enabled: row.enabled === 1,
+    osFilter,
+    createdByUserId: row.created_by_user_id == null ? null : Number(row.created_by_user_id),
+    createdAt: Number(row.created_at) || 0,
+    updatedAt: Number(row.updated_at) || 0,
+  };
+}
+
+export function listAutoDeploys(): AutoDeploy[] {
+  const rows = db.query<any>(`SELECT * FROM auto_deploys ORDER BY created_at DESC`).all();
+  return rows.map(mapAutoDeployRow);
+}
+
+export function listAutoDeploysForUser(userId: number, role: string): AutoDeploy[] {
+  if (role === "admin") return listAutoDeploys();
+  const rows = db
+    .query<any>(`SELECT * FROM auto_deploys WHERE created_by_user_id=? ORDER BY created_at DESC`)
+    .all(userId);
+  return rows.map(mapAutoDeployRow);
+}
+
+export function getAutoDeploysByTrigger(trigger: AutoDeployTrigger): AutoDeploy[] {
+  const rows = db
+    .query<any>(
+      `SELECT * FROM auto_deploys WHERE trigger=? AND enabled=1 ORDER BY created_at ASC`,
+    )
+    .all(trigger);
+  return rows.map(mapAutoDeployRow);
+}
+
+export function getAutoDeploy(id: string): AutoDeploy | null {
+  const row = db.query<any>(`SELECT * FROM auto_deploys WHERE id=?`).get(id);
+  return row ? mapAutoDeployRow(row) : null;
+}
+
+export function canUserManageAutoDeploy(userId: number, role: string, deployId: string): boolean {
+  if (role === "admin") return true;
+  const row = db
+    .query<{ created_by_user_id: number | null }>(`SELECT created_by_user_id FROM auto_deploys WHERE id=?`)
+    .get(deployId);
+  return row?.created_by_user_id != null && Number(row.created_by_user_id) === userId;
+}
+
+export function createAutoDeploy(input: {
+  id: string;
+  name: string;
+  trigger: AutoDeployTrigger;
+  filePath: string;
+  fileName: string;
+  fileSize: number;
+  fileOs: string;
+  args: string;
+  hideWindow: boolean;
+  enabled: boolean;
+  osFilter: string[];
+  createdByUserId: number;
+}): AutoDeploy {
+  const now = Date.now();
+  db.run(
+    `INSERT INTO auto_deploys (id, name, trigger, file_path, file_name, file_size, file_os, args, hide_window, enabled, os_filter, created_by_user_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    input.id,
+    input.name,
+    input.trigger,
+    input.filePath,
+    input.fileName,
+    input.fileSize,
+    input.fileOs,
+    input.args,
+    input.hideWindow ? 1 : 0,
+    input.enabled ? 1 : 0,
+    JSON.stringify(input.osFilter ?? []),
+    input.createdByUserId,
+    now,
+    now,
+  );
+  return getAutoDeploy(input.id)!;
+}
+
+export function updateAutoDeploy(
+  id: string,
+  input: Partial<{
+    name: string;
+    trigger: AutoDeployTrigger;
+    args: string;
+    hideWindow: boolean;
+    enabled: boolean;
+    osFilter: string[];
+  }>,
+): AutoDeploy | null {
+  const current = getAutoDeploy(id);
+  if (!current) return null;
+
+  const next = {
+    name: input.name ?? current.name,
+    trigger: (input.trigger ?? current.trigger) as AutoDeployTrigger,
+    args: input.args ?? current.args,
+    hideWindow: typeof input.hideWindow === "boolean" ? input.hideWindow : current.hideWindow,
+    enabled: typeof input.enabled === "boolean" ? input.enabled : current.enabled,
+    osFilter: Array.isArray(input.osFilter) ? input.osFilter : current.osFilter,
+  };
+
+  db.run(
+    `UPDATE auto_deploys SET name=?, trigger=?, args=?, hide_window=?, enabled=?, os_filter=?, updated_at=? WHERE id=?`,
+    next.name,
+    next.trigger,
+    next.args,
+    next.hideWindow ? 1 : 0,
+    next.enabled ? 1 : 0,
+    JSON.stringify(next.osFilter),
+    Date.now(),
+    id,
+  );
+
+  return getAutoDeploy(id);
+}
+
+export function deleteAutoDeploy(id: string): boolean {
+  const result = db.run(`DELETE FROM auto_deploys WHERE id=?`, id);
+  db.run(`DELETE FROM auto_deploy_runs WHERE deploy_id=?`, id);
+  return (result as any)?.changes ? (result as any).changes > 0 : true;
+}
+
+export function hasAutoDeployRun(deployId: string, clientId: string): boolean {
+  const row = db
+    .query<any>(
+      `SELECT deploy_id FROM auto_deploy_runs WHERE deploy_id=? AND client_id=?`,
+    )
+    .get(deployId, clientId);
+  return !!row?.deploy_id;
+}
+
+export function recordAutoDeployRun(deployId: string, clientId: string) {
+  db.run(
+    `INSERT OR REPLACE INTO auto_deploy_runs (deploy_id, client_id, ts) VALUES (?, ?, ?)`,
+    deployId,
+    clientId,
+    Date.now(),
+  );
+}
+
+export function getDatabaseFileSizeBytes(): number {
+  try {
+    return Bun.file(dbPath).size;
+  } catch {
+    return 0;
+  }
+}
+
+export type BrandingImage = {
+  kind: string;
+  contentType: string;
+  bytes: Uint8Array;
+  updatedAt: number;
+};
+
+export function getBrandingImage(kind: string): BrandingImage | null {
+  const row = db.query<any>(
+    `SELECT kind, content_type, bytes, updated_at FROM branding_images WHERE kind=?`,
+  ).get(kind);
+  if (!row) return null;
+  return {
+    kind: String(row.kind),
+    contentType: String(row.content_type),
+    bytes: new Uint8Array(row.bytes),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+export function saveBrandingImage(kind: string, contentType: string, bytes: Uint8Array): BrandingImage {
+  const updatedAt = Date.now();
+  db.run(
+    `INSERT INTO branding_images (kind, content_type, bytes, updated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(kind) DO UPDATE SET content_type=excluded.content_type, bytes=excluded.bytes, updated_at=excluded.updated_at`,
+    kind, contentType, bytes, updatedAt,
+  );
+  return { kind, contentType, bytes, updatedAt };
+}
+

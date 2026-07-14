@@ -1,0 +1,689 @@
+//go:build windows
+
+package plugins
+
+import (
+	"errors"
+	"fmt"
+	"syscall"
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
+
+const (
+	imageDOSSignature = 0x5A4D     // "MZ"
+	imageNTSignature  = 0x00004550 // "PE\0\0"
+
+	imageOptionalHdrMagicPE32Plus = 0x20B
+
+	imageDirectoryEntryExport    = 0
+	imageDirectoryEntryImport    = 1
+	imageDirectoryEntryException = 3
+	imageDirectoryEntryBaseReloc = 5
+	imageDirectoryEntryTLS       = 9
+
+	imageRelBasedDir64    = 10
+	imageRelBasedHighLow  = 3
+	imageRelBasedAbsolute = 0
+
+	imageSCNMemExecute = 0x20000000
+	imageSCNMemRead    = 0x40000000
+	imageSCNMemWrite   = 0x80000000
+
+	dllProcessAttach = 1
+	dllProcessDetach = 0
+)
+
+type imageDOSHeader struct {
+	Magic  uint16
+	_      [28]uint16
+	LfaNew int32
+}
+
+type imageFileHeader struct {
+	Machine              uint16
+	NumberOfSections     uint16
+	TimeDateStamp        uint32
+	PointerToSymbolTable uint32
+	NumberOfSymbols      uint32
+	SizeOfOptionalHeader uint16
+	Characteristics      uint16
+}
+
+type imageDataDirectory struct {
+	VirtualAddress uint32
+	Size           uint32
+}
+
+type imageOptionalHeader64 struct {
+	Magic               uint16
+	_                   [14]byte
+	AddressOfEntryPoint uint32
+	_                   [4]byte
+	ImageBase           uint64
+	SectionAlignment    uint32
+	FileAlignment       uint32
+	_                   [16]byte
+	SizeOfImage         uint32
+	SizeOfHeaders       uint32
+	_                   [4]byte
+	_                   [4]byte // Subsystem + DllCharacteristics
+	_                   [36]byte
+	NumberOfRvaAndSizes uint32
+	DataDirectory       [16]imageDataDirectory
+}
+
+type imageNTHeaders64 struct {
+	Signature      uint32
+	FileHeader     imageFileHeader
+	OptionalHeader imageOptionalHeader64
+}
+
+type imageSectionHeader struct {
+	Name             [8]byte
+	VirtualSize      uint32
+	VirtualAddress   uint32
+	SizeOfRawData    uint32
+	PointerToRawData uint32
+	_                [12]byte
+	Characteristics  uint32
+}
+
+type imageImportDescriptor struct {
+	OriginalFirstThunk uint32
+	TimeDateStamp      uint32
+	ForwarderChain     uint32
+	Name               uint32
+	FirstThunk         uint32
+}
+
+type imageBaseRelocation struct {
+	VirtualAddress uint32
+	SizeOfBlock    uint32
+}
+
+type imageExportDirectory struct {
+	_                     [12]byte
+	Name                  uint32
+	Base                  uint32
+	NumberOfFunctions     uint32
+	NumberOfNames         uint32
+	AddressOfFunctions    uint32
+	AddressOfNames        uint32
+	AddressOfNameOrdinals uint32
+}
+
+type imageTLSDirectory64 struct {
+	StartAddressOfRawData uint64
+	EndAddressOfRawData   uint64
+	AddressOfIndex        uint64
+	AddressOfCallBacks    uint64
+	SizeOfZeroFill        uint32
+	Characteristics       uint32
+}
+
+type imageRuntimeFunction struct {
+	BeginAddress      uint32
+	EndAddress        uint32
+	UnwindInfoAddress uint32
+}
+
+type MemoryModule struct {
+	base                    uintptr
+	size                    uintptr
+	entryPoint              uintptr
+	exports                 map[string]uintptr
+	importDLLs              []windows.Handle
+	initialized             bool
+	functionTable           uintptr
+	functionCount           uint32
+	functionTableRegistered bool
+	tlsIndex                uint32  // index returned by TlsAlloc; 0xFFFFFFFF if no TLS dir
+	tlsTemplSrc             uintptr // PE template raw data start (for copying to new threads)
+	tlsTemplSize            uintptr // dataSize (template bytes to copy)
+	tlsTotalSize            uintptr // dataSize + zeroFill (total allocation per thread)
+}
+
+func LoadMemoryModule(data []byte) (*MemoryModule, error) {
+	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
+	if len(data) < int(unsafe.Sizeof(imageDOSHeader{})) {
+		return nil, errors.New("pe: data too small for DOS header")
+	}
+
+	dosHdr := (*imageDOSHeader)(unsafe.Pointer(&data[0]))
+	if dosHdr.Magic != imageDOSSignature {
+		return nil, errors.New("pe: invalid DOS signature")
+	}
+
+	ntOffset := int(dosHdr.LfaNew)
+	if ntOffset < 0 || ntOffset+int(unsafe.Sizeof(imageNTHeaders64{})) > len(data) {
+		return nil, errors.New("pe: NT headers out of bounds")
+	}
+	ntHdr := (*imageNTHeaders64)(unsafe.Pointer(&data[ntOffset]))
+	if ntHdr.Signature != imageNTSignature {
+		return nil, errors.New("pe: invalid NT signature")
+	}
+	if ntHdr.OptionalHeader.Magic != imageOptionalHdrMagicPE32Plus {
+		return nil, errors.New("pe: only PE32+ (64-bit) is supported")
+	}
+
+	imageSize := uintptr(ntHdr.OptionalHeader.SizeOfImage)
+	preferredBase := uintptr(ntHdr.OptionalHeader.ImageBase)
+
+	base, err := windows.VirtualAlloc(preferredBase, imageSize, windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+	if err != nil || base == 0 {
+		base, err = windows.VirtualAlloc(0, imageSize, windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+		if err != nil {
+			return nil, fmt.Errorf("pe: VirtualAlloc failed: %w", err)
+		}
+	}
+
+	mm := &MemoryModule{
+		base:     base,
+		size:     imageSize,
+		exports:  make(map[string]uintptr),
+		tlsIndex: tlsOutOfIndexes,
+	}
+
+	headerSize := uintptr(ntHdr.OptionalHeader.SizeOfHeaders)
+	if headerSize > uintptr(len(data)) {
+		headerSize = uintptr(len(data))
+	}
+	copyMem(base, &data[0], headerSize)
+
+	sectionStart := ntOffset + int(unsafe.Sizeof(ntHdr.Signature)) +
+		int(unsafe.Sizeof(ntHdr.FileHeader)) +
+		int(ntHdr.FileHeader.SizeOfOptionalHeader)
+
+	for i := 0; i < int(ntHdr.FileHeader.NumberOfSections); i++ {
+		off := sectionStart + i*int(unsafe.Sizeof(imageSectionHeader{}))
+		if off+int(unsafe.Sizeof(imageSectionHeader{})) > len(data) {
+			mm.Free()
+			return nil, errors.New("pe: section header out of bounds")
+		}
+		sec := (*imageSectionHeader)(unsafe.Pointer(&data[off]))
+		if sec.SizeOfRawData > 0 {
+			rawOff := int(sec.PointerToRawData)
+			rawEnd := rawOff + int(sec.SizeOfRawData)
+			if rawEnd > len(data) {
+				mm.Free()
+				return nil, errors.New("pe: section raw data out of bounds")
+			}
+			copySize := uintptr(sec.SizeOfRawData)
+			if sec.VirtualSize > 0 && uintptr(sec.VirtualSize) < copySize {
+				copySize = uintptr(sec.VirtualSize)
+			}
+			dest := uintptr(sec.VirtualAddress)
+			if dest+copySize > imageSize {
+				if dest >= imageSize {
+					continue
+				}
+				copySize = imageSize - dest
+			}
+			copyMem(base+dest, &data[rawOff], copySize)
+		}
+	}
+
+	mappedNT := (*imageNTHeaders64)(unsafe.Pointer(base + uintptr(dosHdr.LfaNew)))
+	delta := int64(base) - int64(mappedNT.OptionalHeader.ImageBase)
+
+	if delta != 0 {
+		relocDir := mappedNT.OptionalHeader.DataDirectory[imageDirectoryEntryBaseReloc]
+		if relocDir.VirtualAddress != 0 && relocDir.Size != 0 {
+			if err := mm.processRelocations(relocDir, delta); err != nil {
+				mm.Free()
+				return nil, err
+			}
+		}
+	}
+
+	importDir := mappedNT.OptionalHeader.DataDirectory[imageDirectoryEntryImport]
+	if importDir.VirtualAddress != 0 && importDir.Size != 0 {
+		if err := mm.resolveImports(importDir); err != nil {
+			mm.Free()
+			return nil, err
+		}
+	}
+
+	for i := 0; i < int(ntHdr.FileHeader.NumberOfSections); i++ {
+		off := sectionStart + i*int(unsafe.Sizeof(imageSectionHeader{}))
+		sec := (*imageSectionHeader)(unsafe.Pointer(&data[off]))
+		prot := sectionProtection(sec.Characteristics)
+		size := uintptr(sec.VirtualSize)
+		if size == 0 {
+			size = uintptr(sec.SizeOfRawData)
+		}
+		if size == 0 {
+			continue
+		}
+		var oldProt uint32
+		_ = windows.VirtualProtect(base+uintptr(sec.VirtualAddress), size, prot, &oldProt)
+	}
+
+	if err := mm.registerExceptionTable(); err != nil {
+		mm.Free()
+		return nil, err
+	}
+
+	mm.setupTLS(dllProcessAttach)
+
+	if mappedNT.OptionalHeader.AddressOfEntryPoint != 0 {
+		mm.entryPoint = base + uintptr(mappedNT.OptionalHeader.AddressOfEntryPoint)
+	}
+
+	exportDir := mappedNT.OptionalHeader.DataDirectory[imageDirectoryEntryExport]
+	if exportDir.VirtualAddress != 0 && exportDir.Size != 0 {
+		mm.parseExports(exportDir)
+	}
+
+	return mm, nil
+}
+
+func (mm *MemoryModule) CallEntryPoint(reason uint32) error {
+	if mm.entryPoint == 0 {
+		return nil
+	}
+	ret, _, _ := syscall.SyscallN(mm.entryPoint, mm.base, uintptr(reason), 0)
+	if ret == 0 && reason == dllProcessAttach {
+		return errors.New("pe: DllMain returned FALSE")
+	}
+	mm.initialized = (reason == dllProcessAttach)
+	return nil
+}
+
+func (mm *MemoryModule) GetExport(name string) (uintptr, error) {
+	addr, ok := mm.exports[name]
+	if !ok {
+		return 0, fmt.Errorf("pe: export %q not found", name)
+	}
+	return addr, nil
+}
+
+func (mm *MemoryModule) Free() {
+	if mm.base == 0 {
+		return
+	}
+	if mm.initialized && mm.entryPoint != 0 {
+		syscall.SyscallN(mm.entryPoint, mm.base, dllProcessDetach, 0)
+		mm.initialized = false
+	}
+	if mm.functionTableRegistered {
+		_, _, _ = procRtlDeleteFunctionTable.Call(mm.functionTable)
+		mm.functionTableRegistered = false
+	}
+	if mm.tlsIndex != tlsOutOfIndexes {
+		// Free our load-thread per-thread block (held in the slot)
+		// before releasing the slot itself, so the OS can reuse it.
+		if data := tlsGetValue(mm.tlsIndex); data != 0 {
+			_ = windows.VirtualFree(data, 0, windows.MEM_RELEASE)
+			tlsSetValue(mm.tlsIndex, 0)
+		}
+		tlsFree(mm.tlsIndex)
+		mm.tlsIndex = tlsOutOfIndexes
+	}
+	for _, h := range mm.importDLLs {
+		_ = windows.FreeLibrary(h)
+	}
+	mm.importDLLs = nil
+	_ = windows.VirtualFree(mm.base, 0, windows.MEM_RELEASE)
+	mm.base = 0
+}
+
+func (mm *MemoryModule) processRelocations(dir imageDataDirectory, delta int64) error {
+	offset := uintptr(dir.VirtualAddress)
+	end := offset + uintptr(dir.Size)
+
+	for offset < end {
+		block := (*imageBaseRelocation)(unsafe.Pointer(mm.base + offset))
+		if block.SizeOfBlock == 0 {
+			break
+		}
+		count := (block.SizeOfBlock - 8) / 2
+		entries := mm.base + offset + 8
+
+		for i := uint32(0); i < count; i++ {
+			entry := *(*uint16)(unsafe.Pointer(entries + uintptr(i)*2))
+			typ := entry >> 12
+			off := uintptr(entry & 0xFFF)
+			addr := mm.base + uintptr(block.VirtualAddress) + off
+
+			switch typ {
+			case imageRelBasedAbsolute:
+			case imageRelBasedHighLow:
+				val := (*uint32)(unsafe.Pointer(addr))
+				*val = uint32(int64(*val) + delta)
+			case imageRelBasedDir64:
+				val := (*uint64)(unsafe.Pointer(addr))
+				*val = uint64(int64(*val) + delta)
+			default:
+				return fmt.Errorf("pe: unsupported relocation type %d", typ)
+			}
+		}
+		offset += uintptr(block.SizeOfBlock)
+	}
+	return nil
+}
+
+func (mm *MemoryModule) registerExceptionTable() error {
+	dosHdr := (*imageDOSHeader)(unsafe.Pointer(mm.base))
+	ntHdr := (*imageNTHeaders64)(unsafe.Pointer(mm.base + uintptr(dosHdr.LfaNew)))
+	excDir := ntHdr.OptionalHeader.DataDirectory[imageDirectoryEntryException]
+	if excDir.VirtualAddress == 0 || excDir.Size == 0 {
+		return nil
+	}
+	entrySize := uint32(unsafe.Sizeof(imageRuntimeFunction{}))
+	if excDir.Size%entrySize != 0 {
+		return fmt.Errorf("pe: invalid exception directory size")
+	}
+	if uintptr(excDir.VirtualAddress)+uintptr(excDir.Size) > mm.size {
+		return fmt.Errorf("pe: exception directory out of bounds")
+	}
+	table := mm.base + uintptr(excDir.VirtualAddress)
+	count := excDir.Size / entrySize
+	r, _, err := procRtlAddFunctionTable.Call(table, uintptr(count), mm.base)
+	if r == 0 {
+		return fmt.Errorf("pe: RtlAddFunctionTable failed: %w", err)
+	}
+	mm.functionTable = table
+	mm.functionCount = count
+	mm.functionTableRegistered = true
+	return nil
+}
+
+func (mm *MemoryModule) resolveImports(dir imageDataDirectory) error {
+	descSize := unsafe.Sizeof(imageImportDescriptor{})
+	offset := uintptr(dir.VirtualAddress)
+
+	for {
+		desc := (*imageImportDescriptor)(unsafe.Pointer(mm.base + offset))
+		if desc.Name == 0 {
+			break
+		}
+
+		dllName := peString(mm.base + uintptr(desc.Name))
+		hDLL, err := windows.LoadLibrary(dllName)
+		if err != nil {
+			return fmt.Errorf("pe: LoadLibrary(%s): %w", dllName, err)
+		}
+		mm.importDLLs = append(mm.importDLLs, hDLL)
+
+		thunkRef := mm.base + uintptr(desc.OriginalFirstThunk)
+		thunkAddr := mm.base + uintptr(desc.FirstThunk)
+		if desc.OriginalFirstThunk == 0 {
+			thunkRef = thunkAddr
+		}
+
+		for {
+			ref := *(*uint64)(unsafe.Pointer(thunkRef))
+			if ref == 0 {
+				break
+			}
+
+			var procAddr uintptr
+			if ref&(1<<63) != 0 {
+				ordinal := uint16(ref & 0xFFFF)
+				procAddr, err = getProcByOrdinal(hDLL, ordinal)
+			} else {
+				nameAddr := mm.base + uintptr(ref) + 2
+				funcName := peString(nameAddr)
+				procAddr, err = windows.GetProcAddress(hDLL, funcName)
+			}
+			if err != nil {
+				return fmt.Errorf("pe: import resolve from %s: %w", dllName, err)
+			}
+
+			*(*uintptr)(unsafe.Pointer(thunkAddr)) = procAddr
+			thunkRef += 8
+			thunkAddr += 8
+		}
+		offset += descSize
+	}
+	return nil
+}
+
+func (mm *MemoryModule) parseExports(dir imageDataDirectory) {
+	if dir.Size == 0 {
+		return
+	}
+	expDir := (*imageExportDirectory)(unsafe.Pointer(mm.base + uintptr(dir.VirtualAddress)))
+	numNames := int(expDir.NumberOfNames)
+	if numNames == 0 {
+		return
+	}
+
+	namesRVA := mm.base + uintptr(expDir.AddressOfNames)
+	ordinalsRVA := mm.base + uintptr(expDir.AddressOfNameOrdinals)
+	funcsRVA := mm.base + uintptr(expDir.AddressOfFunctions)
+
+	exportStart := uintptr(dir.VirtualAddress)
+	exportEnd := exportStart + uintptr(dir.Size)
+
+	for i := 0; i < numNames; i++ {
+		nameRVA := *(*uint32)(unsafe.Pointer(namesRVA + uintptr(i)*4))
+		ordinal := *(*uint16)(unsafe.Pointer(ordinalsRVA + uintptr(i)*2))
+		funcRVA := *(*uint32)(unsafe.Pointer(funcsRVA + uintptr(ordinal)*4))
+
+		if uintptr(funcRVA) >= exportStart && uintptr(funcRVA) < exportEnd {
+			continue
+		}
+
+		name := peString(mm.base + uintptr(nameRVA))
+		mm.exports[name] = mm.base + uintptr(funcRVA)
+	}
+}
+
+// setupTLS handles the manually-mapped DLL's TLS directory.
+//
+// Critically, this MUST go through the Win32 TlsAlloc/TlsSetValue API rather
+// than poking the TEB's ThreadLocalStoragePointer (gs:0x58) directly. ntdll
+// owns that array and resizes it as DLLs reserve slots. If we replace the
+// pointer with our own buffer sized only for our slot, every other DLL on the
+// thread (d3d11.dll, dxgi.dll, ole32.dll's COM apartment slot, msvcrt's
+// errno, Rust libstd's SRWLOCK pool, etc.) reads or writes past the end of
+// our truncated array on its next TLS access — which manifests as random
+// access violations in completely unrelated code paths (e.g.
+// D3D11CreateDevice).
+func (mm *MemoryModule) setupTLS(reason uint32) {
+	dosHdr := (*imageDOSHeader)(unsafe.Pointer(mm.base))
+	ntHdr := (*imageNTHeaders64)(unsafe.Pointer(mm.base + uintptr(dosHdr.LfaNew)))
+	tlsDir := ntHdr.OptionalHeader.DataDirectory[imageDirectoryEntryTLS]
+	if tlsDir.VirtualAddress == 0 || tlsDir.Size == 0 {
+		return
+	}
+
+	tls := (*imageTLSDirectory64)(unsafe.Pointer(mm.base + uintptr(tlsDir.VirtualAddress)))
+	if tls.EndAddressOfRawData < tls.StartAddressOfRawData {
+		return
+	}
+	dataSize := uintptr(tls.EndAddressOfRawData - tls.StartAddressOfRawData)
+	totalSize := dataSize + uintptr(tls.SizeOfZeroFill)
+	if dataSize > 0 && !mm.containsAddress(uintptr(tls.StartAddressOfRawData), dataSize) {
+		return
+	}
+
+	// Reserve a real TLS slot through the Win32 loader. ntdll grows the
+	// TEB's TLS array to fit, and this slot is interoperable with the
+	// plugin's compiled `gs:[58h+idx*8]` access pattern because the
+	// system keeps that array properly sized.
+	idx := tlsAlloc()
+	if idx == tlsOutOfIndexes {
+		return
+	}
+
+	// Allocate the calling thread's per-thread TLS block (template +
+	// zero-fill) and bind it to our slot. Subsequent threads that need
+	// to call into the plugin allocate their own block via
+	// SetupThreadTLS, but never touch the TEB array.
+	if totalSize > 0 {
+		tlsData, err := windows.VirtualAlloc(0, totalSize,
+			windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+		if err != nil || tlsData == 0 {
+			tlsFree(idx)
+			return
+		}
+		if dataSize > 0 {
+			copyMem(tlsData, (*byte)(unsafe.Pointer(uintptr(tls.StartAddressOfRawData))), dataSize)
+		}
+		if !tlsSetValue(idx, tlsData) {
+			_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+			tlsFree(idx)
+			return
+		}
+	}
+
+	// Patch the plugin's `_tls_index` so its compiled TLS accesses use
+	// our OS-issued slot instead of whatever index it was linked with.
+	if tls.AddressOfIndex != 0 {
+		*(*uint32)(unsafe.Pointer(uintptr(tls.AddressOfIndex))) = idx
+	}
+
+	mm.tlsIndex = idx
+	mm.tlsTemplSrc = uintptr(tls.StartAddressOfRawData)
+	mm.tlsTemplSize = dataSize
+	mm.tlsTotalSize = totalSize
+
+	if tls.AddressOfCallBacks != 0 {
+		cbAddr := uintptr(tls.AddressOfCallBacks)
+		if !mm.containsAddress(cbAddr, unsafe.Sizeof(uintptr(0))) {
+			return
+		}
+		for {
+			cb := *(*uintptr)(unsafe.Pointer(cbAddr))
+			if cb == 0 {
+				break
+			}
+			syscall.SyscallN(cb, mm.base, uintptr(reason), 0)
+			cbAddr += 8
+			if !mm.containsAddress(cbAddr, unsafe.Sizeof(uintptr(0))) {
+				break
+			}
+		}
+	}
+}
+
+// SetupThreadTLS allocates a fresh per-thread TLS block for the plugin on
+// the current thread and installs it via TlsSetValue. Returns a cleanup
+// function that releases the allocation and clears the slot. As above, this
+// goes through Win32 only — never touches gs:[58h] directly.
+func (mm *MemoryModule) SetupThreadTLS() func() {
+	if mm.tlsIndex == tlsOutOfIndexes || mm.tlsTotalSize == 0 {
+		return func() {}
+	}
+
+	tlsData, err := windows.VirtualAlloc(0, mm.tlsTotalSize,
+		windows.MEM_RESERVE|windows.MEM_COMMIT, windows.PAGE_READWRITE)
+	if err != nil || tlsData == 0 {
+		return func() {}
+	}
+	if mm.tlsTemplSize > 0 {
+		copyMem(tlsData, (*byte)(unsafe.Pointer(mm.tlsTemplSrc)), mm.tlsTemplSize)
+	}
+
+	prev := tlsGetValue(mm.tlsIndex)
+	if !tlsSetValue(mm.tlsIndex, tlsData) {
+		_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+		return func() {}
+	}
+
+	return func() {
+		// Restore whatever was in the slot before (typically 0 for a
+		// fresh thread). Then free our per-thread block.
+		tlsSetValue(mm.tlsIndex, prev)
+		_ = windows.VirtualFree(tlsData, 0, windows.MEM_RELEASE)
+	}
+}
+
+func (mm *MemoryModule) containsAddress(addr uintptr, size uintptr) bool {
+	if size == 0 {
+		return addr >= mm.base && addr <= mm.base+mm.size
+	}
+	if addr < mm.base {
+		return false
+	}
+	offset := addr - mm.base
+	return offset <= mm.size && size <= mm.size-offset
+}
+
+func peString(addr uintptr) string {
+	var buf []byte
+	for i := 0; i < 4096; i++ { // safety limit
+		b := *(*byte)(unsafe.Pointer(addr + uintptr(i)))
+		if b == 0 {
+			break
+		}
+		buf = append(buf, b)
+	}
+	return string(buf)
+}
+
+func copyMem(dst uintptr, src *byte, size uintptr) {
+	for i := uintptr(0); i < size; i++ {
+		*(*byte)(unsafe.Pointer(dst + i)) = *(*byte)(unsafe.Pointer(uintptr(unsafe.Pointer(src)) + i))
+	}
+}
+
+func sectionProtection(chars uint32) uint32 {
+	r := chars&imageSCNMemRead != 0
+	w := chars&imageSCNMemWrite != 0
+	x := chars&imageSCNMemExecute != 0
+
+	switch {
+	case x && w:
+		return windows.PAGE_EXECUTE_READWRITE
+	case x && r:
+		return windows.PAGE_EXECUTE_READ
+	case x:
+		return windows.PAGE_EXECUTE
+	case w:
+		return windows.PAGE_READWRITE
+	case r:
+		return windows.PAGE_READONLY
+	default:
+		return windows.PAGE_NOACCESS
+	}
+}
+
+var (
+	modKernel32                = windows.NewLazySystemDLL("kernel32.dll")
+	procGetProcAddr            = modKernel32.NewProc("GetProcAddress")
+	procRtlAddFunctionTable    = modKernel32.NewProc("RtlAddFunctionTable")
+	procRtlDeleteFunctionTable = modKernel32.NewProc("RtlDeleteFunctionTable")
+	procTlsAlloc               = modKernel32.NewProc("TlsAlloc")
+	procTlsFree                = modKernel32.NewProc("TlsFree")
+	procTlsSetValue            = modKernel32.NewProc("TlsSetValue")
+	procTlsGetValue            = modKernel32.NewProc("TlsGetValue")
+)
+
+const tlsOutOfIndexes uint32 = 0xFFFFFFFF
+
+// tlsAlloc reserves a TLS slot via the Win32 loader so ntdll keeps the TEB's
+// ThreadLocalStoragePointer correctly sized. This is critical: writing the
+// TEB array directly truncates it for OTHER DLLs (like d3d11.dll), which
+// then crash on TlsGetValue/TlsSetValue past the truncated tail.
+func tlsAlloc() uint32 {
+	r, _, _ := procTlsAlloc.Call()
+	return uint32(r)
+}
+
+func tlsFree(idx uint32) {
+	procTlsFree.Call(uintptr(idx))
+}
+
+func tlsSetValue(idx uint32, value uintptr) bool {
+	r, _, _ := procTlsSetValue.Call(uintptr(idx), value)
+	return r != 0
+}
+
+func tlsGetValue(idx uint32) uintptr {
+	r, _, _ := procTlsGetValue.Call(uintptr(idx))
+	return r
+}
+
+func getProcByOrdinal(module windows.Handle, ordinal uint16) (uintptr, error) {
+	r, _, err := procGetProcAddr.Call(uintptr(module), uintptr(ordinal))
+	if r == 0 {
+		return 0, fmt.Errorf("pe: GetProcAddress ordinal %d: %w", ordinal, err)
+	}
+	return r, nil
+}

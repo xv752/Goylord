@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="turbo-visit-control" content="reload" />
+    <title>Goylord Login</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <script src="/vendor/animejs/anime.min.js"></script>
+  </head>
+  <body class="login-body">
+    <img id="login-hero-image" class="login-hero-image" alt="" style="display: none" />
+    <div class="login-particles">
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+    </div>
+    <div class="login-card">
+      <div class="login-crown-wrapper">
+        <img id="login-logo" class="login-logo" alt="Goylord logo" style="display: none" />
+        <i id="login-icon" class="fa-solid fa-crown login-crown"></i>
+      </div>
+      <div id="login-brand" class="brand login-brand">Goylord</div>
+      <h2 id="login-title" class="login-title">Welcome back</h2>
+      <p id="login-subtitle" class="muted login-subtitle">Sign in to your control plane</p>
+      <form id="login-form" aria-label="Login" aria-labelledby="login-title">
+        <div class="form-group">
+          <label class="label" for="user">Username</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-user"></i
+            ><input
+              id="user"
+              name="user"
+              type="text"
+              autocomplete="username"
+              required
+              placeholder="Enter username"
+            />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label" for="pass">Password</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-lock"></i
+            ><input
+              id="pass"
+              name="pass"
+              type="password"
+              autocomplete="current-password"
+              required
+              placeholder="Enter password"
+            />
+          </div>
+        </div>
+        <div id="mfa-group" class="form-group" style="display: none">
+          <label class="label" for="mfa-code">Authenticator Code</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-shield-halved"></i
+            ><input
+              id="mfa-code"
+              name="mfa-code"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              placeholder="6-digit code"
+            />
+          </div>
+        </div>
+        <button type="submit" class="button primary full login-btn">
+          <span class="btn-text">Sign in</span>
+          <i class="fa-solid fa-arrow-right btn-icon"></i>
+        </button>
+        <div id="error" class="error" aria-live="polite"></div>
+      </form>
+      <a id="oidc-login" href="/api/oidc/login" class="button secondary full login-btn" style="display: none; margin-top: 0.75rem">
+        <span id="oidc-login-label">Single sign-on</span>
+        <i class="fa-solid fa-right-to-bracket btn-icon"></i>
+      </a>
+      <div id="register-link" class="login-footer" style="display: none">
+        Don't have an account?
+        <a href="/register.html">Create one</a>
+      </div>
+      <div id="login-brand-footer" class="login-enterprise-footer" style="display: none"></div>
+      <a id="login-support-link" class="login-support-link" href="#" style="display: none"></a>
+    </div>
+    <script src="/assets/login.js"></script>
+  </body>
+</html>

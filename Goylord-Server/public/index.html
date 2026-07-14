@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="/assets/nav-prelude.js"></script>
+    <link rel="modulepreload" href="/assets/nav.js" />
+    <title>Goylord Dashboard</title>
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+<link rel="stylesheet" href="/assets/tailwind.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/vendor/flag-icons/css/flag-icons.min.css" />
+    <link rel="stylesheet" href="/vendor/gridstack/gridstack.min.css" />
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <script defer src="/vendor/animejs/anime.min.js"></script>
+    <script defer src="/vendor/chart.js/chart.umd.js"></script>
+    <script defer src="/vendor/gridstack/gridstack-all.js"></script>
+    <link rel="preload" href="/api/clients?page=1&amp;pageSize=12&amp;q=&amp;sort=stable&amp;status=all&amp;os=all&amp;country=all&amp;group=all&amp;webcam=all" as="fetch" crossorigin="use-credentials" />
+    <link rel="preload" href="/api/auth/me" as="fetch" crossorigin="use-credentials" />
+    <link rel="preload" href="/api/groups" as="fetch" crossorigin="use-credentials" />
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100">
+    <header id="top-nav"></header>
+    <main class="px-5 py-6" role="main">
+      <div id="clients-shell" class="w-full flex flex-col gap-5">
+        <span id="total-pill" class="hidden">0 online</span>
+        <section id="dashboard-stats" class="dashboard-stats-shell" aria-label="Dashboard status">
+          <div class="dashboard-stats-bar">
+            <div class="dashboard-stats-title">
+              <i class="fa-solid fa-chart-simple"></i>
+              <span>Status overview</span>
+              <span id="server-version-text" class="dashboard-version-text">Server version: loading...</span>
+            </div>
+            <div class="dashboard-stats-controls" aria-label="Status overview controls">
+              <details id="dashboard-card-menu" class="dashboard-card-menu">
+                <summary class="dashboard-stats-toggle" title="Dashboard cards" aria-label="Dashboard cards">
+                  <i class="fa-solid fa-table-cells-large"></i>
+                </summary>
+                <div id="dashboard-card-menu-panel" class="dashboard-card-menu-panel">
+                  <label><input type="checkbox" data-dashboard-card-toggle="online" checked /> Online</label>
+                  <label><input type="checkbox" data-dashboard-card-toggle="sessions" checked /> Sessions</label>
+                  <label><input type="checkbox" data-dashboard-card-toggle="trend" checked /> Clients Online</label>
+                  <label><input type="checkbox" data-dashboard-card-toggle="fleet" checked /> Operating Systems</label>
+                  <label><input type="checkbox" data-dashboard-card-toggle="pulse" checked /> Server Pulse</label>
+                </div>
+              </details>
+              <button id="dashboard-stats-reset" class="dashboard-stats-toggle" type="button" title="Reset status overview">
+                <i class="fa-solid fa-arrow-rotate-left"></i>
+              </button>
+              <button id="dashboard-stats-toggle" class="dashboard-stats-toggle" type="button" aria-expanded="true" title="Hide status overview">
+                <i class="fa-solid fa-eye-slash"></i>
+              </button>
+            </div>
+          </div>
+          <div id="dashboard-stats-content" class="dashboard-stats-content grid-stack">
+            <div class="grid-stack-item" data-dashboard-card="online" gs-id="online" gs-x="0" gs-y="0" gs-w="2" gs-h="2" gs-min-w="2" gs-min-h="1">
+              <div class="grid-stack-item-content dashboard-stat-card dashboard-stat-card--online">
+                <div class="dashboard-stat-topline">
+                  <span class="dashboard-live-dot is-live"></span>
+                  <span>Online</span>
+                </div>
+                <div id="dash-online-count" class="dashboard-stat-value">0</div>
+                <div class="dashboard-stat-subline">
+                  <span id="dash-total-count">0 total</span>
+                  <span id="dash-online-ratio">0%</span>
+                </div>
+              </div>
+            </div>
+            <div class="grid-stack-item" data-dashboard-card="sessions" gs-id="sessions" gs-x="2" gs-y="0" gs-w="2" gs-h="2" gs-min-w="2" gs-min-h="1">
+              <div class="grid-stack-item-content dashboard-stat-card dashboard-stat-card--sessions">
+                <div class="dashboard-stat-topline">
+                  <i class="fa-solid fa-wave-square"></i>
+                  <span>Sessions</span>
+                </div>
+                <div id="dash-session-count" class="dashboard-stat-value">0</div>
+                <div class="dashboard-stat-subline">
+                  <span id="dash-command-minute">0 cmd/min</span>
+                  <span id="dash-http-errors">0 errors</span>
+                </div>
+              </div>
+            </div>
+            <div class="grid-stack-item" data-dashboard-card="trend" gs-id="trend" gs-x="4" gs-y="0" gs-w="3" gs-h="2" gs-min-w="2" gs-min-h="1">
+              <div class="grid-stack-item-content dashboard-chart-card">
+                <div class="dashboard-chart-head">
+                  <div>
+                    <span class="dashboard-chart-kicker">Past Week</span>
+                    <strong>Clients Online</strong>
+                  </div>
+                  <span id="dash-trend-status" class="dashboard-chart-pill">Live</span>
+                </div>
+                <div class="dashboard-chart-wrap">
+                  <canvas id="dash-online-chart"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="grid-stack-item" data-dashboard-card="fleet" gs-id="fleet" gs-x="7" gs-y="0" gs-w="3" gs-h="2" gs-min-w="2" gs-min-h="1">
+              <div class="grid-stack-item-content dashboard-chart-card">
+                <div class="dashboard-chart-head">
+                  <div>
+                    <span class="dashboard-chart-kicker">Fleet Mix</span>
+                    <strong>Operating Systems</strong>
+                  </div>
+                  <span id="dash-os-leader" class="dashboard-chart-pill">None</span>
+                </div>
+                <div class="dashboard-chart-wrap dashboard-chart-wrap--donut">
+                  <canvas id="dash-os-chart"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="grid-stack-item" data-dashboard-card="pulse" gs-id="pulse" gs-x="10" gs-y="0" gs-w="2" gs-h="2" gs-min-w="2" gs-min-h="1">
+              <div class="grid-stack-item-content dashboard-health-card">
+                <div class="dashboard-chart-head">
+                  <div>
+                    <span class="dashboard-chart-kicker">Status</span>
+                    <strong>Server Pulse</strong>
+                  </div>
+                  <span id="dash-last-refresh" class="dashboard-chart-pill">Waiting</span>
+                </div>
+                <div class="dashboard-health-list">
+                  <div class="dashboard-health-row" data-pulse-row="api" draggable="true">
+                    <span class="dashboard-live-dot is-live"></span>
+                    <span>API</span>
+                    <strong id="dash-api-status">Live</strong>
+                  </div>
+                  <div class="dashboard-health-row" data-pulse-row="memory" draggable="true">
+                    <span id="dash-memory-dot" class="dashboard-live-dot is-live"></span>
+                    <span>Memory</span>
+                    <strong id="dash-memory-status">0%</strong>
+                  </div>
+                  <div class="dashboard-health-row" data-pulse-row="cpu" draggable="true">
+                    <span id="dash-cpu-dot" class="dashboard-live-dot is-live"></span>
+                    <span>CPU</span>
+                    <strong id="dash-cpu-status">-</strong>
+                  </div>
+                  <div class="dashboard-health-row" data-pulse-row="uptime" draggable="true">
+                    <span class="dashboard-live-dot is-live"></span>
+                    <span>Uptime</span>
+                    <strong id="dash-uptime-status">-</strong>
+                  </div>
+                  <div class="dashboard-health-row" data-pulse-row="ping" draggable="true">
+                    <span id="dash-ping-dot" class="dashboard-live-dot is-muted"></span>
+                    <span>Ping Avg</span>
+                    <strong id="dash-ping-status">-</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            id="dashboard-stats-resizer"
+            class="dashboard-stats-resizer"
+            role="separator"
+            aria-orientation="horizontal"
+            tabindex="0"
+            title="Drag to resize status overview"
+          >
+            <span></span>
+          </div>
+        </section>
+        <div class="dashboard-toolbar">
+          <label
+            id="search-shell"
+            class="dashboard-search flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-lg px-3 py-2"
+          >
+            <i class="fa-solid fa-magnifying-glass text-slate-500"></i>
+            <input
+              id="search"
+              class="bg-transparent outline-none w-full placeholder:text-slate-500"
+              type="search"
+              placeholder="Search by nickname, host, user, id"
+            />
+          </label>
+          <div class="dashboard-toolbar-actions">
+            <label class="dashboard-toggle" title="Show offline clients">
+              <input id="toggle-offline" type="checkbox" checked />
+              <i class="fa-solid fa-power-off"></i>
+            </label>
+            <details class="dashboard-menu">
+              <summary title="Filters"><i class="fa-solid fa-filter"></i></summary>
+              <div class="dashboard-menu-panel dashboard-filter-panel">
+                <select id="filter-status">
+                  <option value="all">All Status</option>
+                  <option value="online">Online Only</option>
+                  <option value="offline">Offline Only</option>
+                </select>
+                <select id="filter-os">
+                  <option value="all">All OS</option>
+                </select>
+                <select id="filter-group">
+                  <option value="all">All Groups</option>
+                  <option value="none">No Group</option>
+                </select>
+                <select id="filter-webcam">
+                  <option value="all">All Webcams</option>
+                  <option value="available">Has Webcam</option>
+                </select>
+                <div id="country-picker-anchor" class="relative"></div>
+                <select id="filter-cpu" style="width:100%;margin-top:6px">
+                  <option value="all">All CPUs</option>
+                </select>
+                <select id="filter-gpu" style="width:100%;margin-top:6px">
+                  <option value="all">All GPUs</option>
+                </select>
+                <div style="display:flex;gap:4px;margin-top:6px">
+                  <input type="number" id="filter-ram-min" placeholder="Min GB" min="0" style="width:50%">
+                  <input type="number" id="filter-ram-max" placeholder="Max GB" min="0" style="width:50%">
+                </div>
+              </div>
+            </details>
+            <details class="dashboard-menu">
+              <summary title="Sort"><i class="fa-solid fa-arrow-down-wide-short"></i></summary>
+              <div class="dashboard-menu-panel">
+                <select id="sort">
+                  <option value="stable">Default</option>
+                  <option value="last_seen_desc">Newest</option>
+                  <option value="host_asc">Host A-Z</option>
+                  <option value="ping_asc">Ping up</option>
+                  <option value="ping_desc">Ping down</option>
+                  <option value="country_asc">Country A-Z</option>
+                  <option value="country_desc">Country Z-A</option>
+                  <option value="group_asc">Group A-Z</option>
+                  <option value="group_desc">Group Z-A</option>
+                  <option value="admin_first">Admin first</option>
+                  <option value="elevated_first">Elevated first</option>
+                </select>
+              </div>
+            </details>
+            <details class="dashboard-menu">
+              <summary title="Visible fields"><i class="fa-solid fa-sliders"></i></summary>
+              <div id="display-fields-menu" class="dashboard-menu-panel dashboard-fields-panel">
+                <label><input type="checkbox" data-field="user" checked /> User</label>
+                <label><input type="checkbox" data-field="ip" checked /> IP</label>
+                <label><input type="checkbox" data-field="hwid" /> HWID</label>
+                <label><input type="checkbox" data-field="system" checked /> System</label>
+                <label><input type="checkbox" data-field="version" checked /> Version</label>
+                <label><input type="checkbox" data-field="monitors" checked /> Monitors</label>
+                <label><input type="checkbox" data-field="group" checked /> Group</label>
+                <label><input type="checkbox" data-field="hardware" checked /> Hardware</label>
+                <label><input type="checkbox" data-field="battery" checked /> Battery</label>
+              </div>
+            </details>
+            <button id="select-all" class="dashboard-icon-btn" title="Select all">
+              <i class="fa-solid fa-check"></i>
+            </button>
+            <button id="clear-selection" class="dashboard-icon-btn" title="Clear selection">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+            <div id="layout-toggle" role="group" aria-label="Layout" class="inline-flex items-center rounded-lg border border-slate-700/60 bg-slate-800/70 p-0.5">
+              <button type="button" data-layout="rows" class="layout-toggle-btn" title="Row cards" aria-pressed="true"><i class="fa-solid fa-list"></i></button>
+              <button type="button" data-layout="table" class="layout-toggle-btn" title="Dense table" aria-pressed="false"><i class="fa-solid fa-table-list"></i></button>
+              <button type="button" data-layout="cards" class="layout-toggle-btn" title="Card wall" aria-pressed="false"><i class="fa-solid fa-grip"></i></button>
+            </div>
+          </div>
+        </div>
+        <!-- Bulk Actions Toolbar -->
+        <div
+          id="bulk-toolbar"
+          class="hidden bg-slate-800/70 border border-slate-700/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3"
+        >
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-check-double text-slate-400"></i>
+            <span class="text-slate-300"
+              ><span id="selected-count">0</span> selected</span
+            >
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button
+              id="bulk-screenshot"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 border border-slate-600/60 transition-colors"
+            >
+              <i class="fa-solid fa-camera"></i> Screenshot
+            </button>
+            <button
+              id="bulk-disconnect"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-red-950/60 text-red-300 border border-red-900/60 transition-colors"
+            >
+              <i class="fa-solid fa-plug-circle-xmark"></i> Disconnect
+            </button>
+            <button
+              id="bulk-uninstall"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-rose-950/60 text-rose-300 border border-rose-900/60 transition-colors"
+            >
+              <i class="fa-solid fa-trash"></i> Uninstall
+            </button>
+            <button
+              id="bulk-group"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 border border-slate-600/60 transition-colors"
+            >
+              <i class="fa-solid fa-layer-group"></i> Set Group
+            </button>
+            <button
+              id="bulk-mute"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-amber-300 border border-amber-900/40 transition-colors"
+            >
+              <i class="fa-solid fa-bell-slash"></i> Mute Notifications
+            </button>
+            <button
+              id="bulk-unmute"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-emerald-300 border border-emerald-900/40 transition-colors"
+            >
+              <i class="fa-solid fa-bell"></i> Unmute Notifications
+            </button>
+            <button
+              id="bulk-clear"
+              class="px-3 py-2 rounded-lg bg-slate-800/70 hover:bg-slate-700/70 text-slate-400 border border-slate-600/60 transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        <div id="grid" class="clients-grid min-h-[420px]" data-layout="rows"></div>
+        <div id="pagination" class="flex items-center justify-center gap-3 py-4" style="visibility:hidden">
+          <button
+            id="prev"
+            class="px-4 py-2 rounded-lg border border-slate-700/60 bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 disabled:opacity-40"
+            disabled
+          >
+            Prev
+          </button>
+          <form id="page-jump-form" class="page-jump" title="Jump to page">
+            <label id="page-label" for="page-jump-input">Page</label>
+            <input id="page-jump-input" type="number" min="1" value="1" inputmode="numeric" />
+            <span class="page-jump-total">/ <span id="page-total">1</span></span>
+            <button id="page-jump-go" type="submit" title="Go to page">
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+          </form>
+          <button
+            id="next"
+            class="px-4 py-2 rounded-lg border border-slate-700/60 bg-slate-800/70 hover:bg-slate-700/70 text-slate-300 disabled:opacity-40"
+            disabled
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    </main>
+    <script type="module" src="/assets/nav.js"></script>
+    <script defer src="/assets/toast.js"></script>
+    <script defer src="/assets/ripple.js"></script>
+    <script type="module" src="/assets/main.js"></script>
+  </body>
+</html>

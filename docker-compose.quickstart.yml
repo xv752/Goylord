@@ -1,0 +1,74 @@
+services:
+  goylord-server:
+    image: ghcr.io/xv752/goylord:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - type=local,src=.docker-cache/buildx
+      cache_to:
+        - type=local,dest=.docker-cache/buildx,mode=max
+    container_name: goylord-server
+    # Host networking: the container shares the host's network stack directly.
+    # Every port the server binds (5173, SOCKS5 proxies, etc.) is accessible
+    # on the host with zero overhead — no per-port proxy process.
+    network_mode: host
+    environment:
+      # Optional username for first admin user
+      - GOYLORD_USER=admin
+      # Leave these empty to auto-generate and persist to /app/data/save.json
+      - GOYLORD_PASS=
+      - JWT_SECRET=
+      - GOYLORD_AGENT_TOKEN=
+      # Server settings
+      - PORT=5173
+      - HOST=0.0.0.0
+      # TLS paths (self-signed is auto-generated if not present)
+      - GOYLORD_TLS_CERT=/app/certs/server.crt
+      - GOYLORD_TLS_KEY=/app/certs/server.key
+      - GOYLORD_TLS_CA=
+      # Set true only behind a trusted reverse proxy that terminates TLS (for example Render).
+      # Default false keeps current behavior: Goylord terminates TLS in-process.
+      - GOYLORD_TLS_OFFLOAD=false
+      # Trust X-Forwarded-For / X-Real-IP / CF-Connecting-IP from an upstream proxy when
+      # resolving the agent's source IP shown in the dashboard, audit log, and IP bans.
+      # Set true only when a trusted reverse proxy (nginx, Caddy, Cloudflare, etc.) sits
+      # in front of Goylord — otherwise agents can spoof their IP. Auto-enabled when
+      # GOYLORD_TLS_OFFLOAD=true.
+      - GOYLORD_TRUST_PROXY=false
+      # Cookie security mode: auto (default), true, or false.
+      # auto: Secure cookie on HTTPS requests / X-Forwarded-Proto=https.
+      - GOYLORD_AUTH_COOKIE_SECURE=auto
+      # Optional certbot integration (used only when NODE_ENV=production)
+      - GOYLORD_TLS_CERTBOT_ENABLED=false
+      - GOYLORD_TLS_CERTBOT_LIVE_PATH=/etc/letsencrypt/live
+      - GOYLORD_TLS_CERTBOT_DOMAIN=
+      - GOYLORD_TLS_CERTBOT_CERT_FILE=fullchain.pem
+      - GOYLORD_TLS_CERTBOT_KEY_FILE=privkey.pem
+      - GOYLORD_TLS_CERTBOT_CA_FILE=chain.pem
+      - GOYLORD_CLIENT_BUILD_CACHE_DIR=/app/client-build-cache
+      - GOYLORD_FILE_UPLOAD_INTENT_TTL_MS=1800000
+      - GOYLORD_FILE_UPLOAD_PULL_TTL_MS=1800000
+    volumes:
+      - goylord-data:/app/data
+      - goylord-certs:/app/certs
+      - goylord-client-build-cache:/app/client-build-cache
+      - goylord-plugins:/app/plugins
+      # Uncomment to mount host certbot certs read-only
+      # - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Uncomment to use a static config file instead of env vars
+      # - ./Goylord-Server/config.json:/app/config.json:ro
+    restart: unless-stopped
+    healthcheck:
+      # Use http:// when GOYLORD_TLS_OFFLOAD=true.
+      test: ["CMD-SHELL", "wget -qO- --no-check-certificate ${GOYLORD_HEALTHCHECK_URL:-https://localhost:5173/health} >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  goylord-data:
+  goylord-certs:
+  goylord-client-build-cache:
+  goylord-plugins:

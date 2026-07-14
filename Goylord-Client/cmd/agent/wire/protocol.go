@@ -1,0 +1,472 @@
+package wire
+
+type Hello struct {
+	Type            string          `msgpack:"type"`
+	ID              string          `msgpack:"id"`
+	HWID            string          `msgpack:"hwid"`
+	Host            string          `msgpack:"host"`
+	OS              string          `msgpack:"os"`
+	Arch            string          `msgpack:"arch"`
+	HostArch        string          `msgpack:"hostArch,omitempty"`
+	ProtocolVersion int             `msgpack:"protocolVersion,omitempty"`
+	Version         string          `msgpack:"version"`
+	User            string          `msgpack:"user"`
+	Monitors        int             `msgpack:"monitors"`
+	MonitorInfo     []MonitorInfo   `msgpack:"monitorInfo,omitempty"`
+	Country         string          `msgpack:"country,omitempty"`
+	BuildTag        string          `msgpack:"buildTag,omitempty"`
+	PublicKey       string          `msgpack:"publicKey,omitempty"`
+	Signature       string          `msgpack:"signature,omitempty"`
+	InMemory        bool            `msgpack:"inMemory,omitempty"`
+	CPU             string          `msgpack:"cpu,omitempty"`
+	GPU             string          `msgpack:"gpu,omitempty"`
+	RAM             string          `msgpack:"ram,omitempty"`
+	StorageTotalGB  string          `msgpack:"storageTotalGb,omitempty"`
+	OSFamily        string          `msgpack:"osFamily,omitempty"`
+	OSDistro        string          `msgpack:"osDistro,omitempty"`
+	OSVersion       string          `msgpack:"osVersion,omitempty"`
+	BatteryPercent  *int            `msgpack:"batteryPercent,omitempty"`
+	BatteryCharging *bool           `msgpack:"batteryCharging,omitempty"`
+	IsAdmin         bool            `msgpack:"isAdmin,omitempty"`
+	Elevation       string          `msgpack:"elevation,omitempty"`
+	Permissions     map[string]bool `msgpack:"permissions,omitempty"`
+	PublicIP        string          `msgpack:"publicIP,omitempty"`
+	LastCrashReason string                 `msgpack:"lastCrashReason,omitempty"`
+	LastCrashDetail string                 `msgpack:"lastCrashDetail,omitempty"`
+	PluginMeta      map[string]interface{} `msgpack:"pluginMeta,omitempty"`
+}
+
+type EnrollmentChallenge struct {
+	Type  string `msgpack:"type"`
+	Nonce string `msgpack:"nonce"`
+}
+
+type EnrollmentStatus struct {
+	Type   string `msgpack:"type"`
+	Status string `msgpack:"status"`
+}
+
+type MonitorInfo struct {
+	Width  int `msgpack:"width"`
+	Height int `msgpack:"height"`
+}
+
+type Ping struct {
+	Type string `msgpack:"type"`
+	TS   int64  `msgpack:"ts,omitempty"`
+}
+
+type Pong struct {
+	Type string `msgpack:"type"`
+	TS   int64  `msgpack:"ts,omitempty"`
+}
+
+type Command struct {
+	Type        string      `msgpack:"type"`
+	CommandType string      `msgpack:"commandType"`
+	Payload     interface{} `msgpack:"payload,omitempty"`
+	ID          string      `msgpack:"id,omitempty"`
+}
+
+type CommandResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	OK        bool   `msgpack:"ok"`
+	Message   string `msgpack:"message,omitempty"`
+}
+
+type DesktopEncoderProfile struct {
+	MaxHeight int      `msgpack:"maxHeight"`
+	Width     int      `msgpack:"width"`
+	Height    int      `msgpack:"height"`
+	FPS       int      `msgpack:"fps"`
+	Label     string   `msgpack:"label"`
+	Providers []string `msgpack:"providers"`
+}
+
+type DesktopEncoderCapabilities struct {
+	Type      string                  `msgpack:"type"`
+	CommandID string                  `msgpack:"commandId,omitempty"`
+	Probed    bool                    `msgpack:"probed"`
+	Display   int                     `msgpack:"display"`
+	Profiles  []DesktopEncoderProfile `msgpack:"profiles"`
+	Detail    string                  `msgpack:"detail,omitempty"`
+}
+
+type ClientLogEntry struct {
+	Seq    uint64 `msgpack:"seq" json:"seq"`
+	At     int64  `msgpack:"at" json:"at"`
+	Source string `msgpack:"source" json:"source"`
+	Blob   string `msgpack:"blob" json:"blob"`
+}
+
+type ClientLogsResult struct {
+	Type      string           `msgpack:"type"`
+	CommandID string           `msgpack:"commandId,omitempty"`
+	OK        bool             `msgpack:"ok"`
+	Entries   []ClientLogEntry `msgpack:"entries,omitempty"`
+	Dropped   uint64           `msgpack:"dropped,omitempty"`
+	FromSeq   uint64           `msgpack:"fromSeq,omitempty"`
+	ToSeq     uint64           `msgpack:"toSeq,omitempty"`
+	Enabled   bool             `msgpack:"enabled"`
+	Error     string           `msgpack:"error,omitempty"`
+}
+
+type FrameHeader struct {
+	Monitor int    `msgpack:"monitor"`
+	FPS     int    `msgpack:"fps"`
+	Format  string `msgpack:"format"`
+	Backstage    bool   `msgpack:"backstage,omitempty"`
+	Webcam  bool   `msgpack:"webcam,omitempty"`
+}
+
+type Frame struct {
+	Type   string      `msgpack:"type"`
+	Header FrameHeader `msgpack:"header"`
+	Data   []byte      `msgpack:"data"`
+}
+
+type FrameAck struct {
+	Type string `msgpack:"type"`
+}
+
+type ScreenshotResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	Format    string `msgpack:"format"`
+	Width     int    `msgpack:"width,omitempty"`
+	Height    int    `msgpack:"height,omitempty"`
+	Data      []byte `msgpack:"data"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type ConsoleOutput struct {
+	Type      string `msgpack:"type"`
+	SessionID string `msgpack:"sessionId"`
+	Data      []byte `msgpack:"data,omitempty"`
+	ExitCode  *int   `msgpack:"exitCode,omitempty"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type FileEntry struct {
+	Name    string `msgpack:"name"`
+	Path    string `msgpack:"path"`
+	IsDir   bool   `msgpack:"isDir"`
+	Size    int64  `msgpack:"size"`
+	ModTime int64  `msgpack:"modTime"`
+	Mode    string `msgpack:"mode,omitempty"`
+	Owner   string `msgpack:"owner,omitempty"`
+	Group   string `msgpack:"group,omitempty"`
+	// windows file attributes
+	Attrs uint32 `msgpack:"attrs,omitempty"`
+	// Drive / volume disk usage (populated only at root listings for drive entries).
+	FreeBytes  int64  `msgpack:"freeBytes,omitempty"`
+	TotalBytes int64  `msgpack:"totalBytes,omitempty"`
+	FSType     string `msgpack:"fsType,omitempty"`
+}
+
+type FileListResult struct {
+	Type             string      `msgpack:"type"`
+	CommandID        string      `msgpack:"commandId,omitempty"`
+	Path             string      `msgpack:"path"`
+	Entries          []FileEntry `msgpack:"entries"`
+	Error            string      `msgpack:"error,omitempty"`
+	AccessDenied     bool        `msgpack:"accessDenied,omitempty"`
+	CanRequestAccess bool        `msgpack:"canRequestAccess,omitempty"`
+	AccessHelp       string      `msgpack:"accessHelp,omitempty"`
+}
+
+type FileDownload struct {
+	Type        string `msgpack:"type"`
+	CommandID   string `msgpack:"commandId,omitempty"`
+	Path        string `msgpack:"path"`
+	Data        []byte `msgpack:"data"`
+	Offset      int64  `msgpack:"offset"`
+	Total       int64  `msgpack:"total"`
+	ChunkIndex  int    `msgpack:"chunkIndex,omitempty"`
+	ChunksTotal int    `msgpack:"chunksTotal,omitempty"`
+	Error       string `msgpack:"error,omitempty"`
+}
+
+type FileUploadResult struct {
+	Type       string `msgpack:"type"`
+	CommandID  string `msgpack:"commandId,omitempty"`
+	TransferID string `msgpack:"transferId,omitempty"`
+	Path       string `msgpack:"path"`
+	OK         bool   `msgpack:"ok"`
+	Offset     int64  `msgpack:"offset,omitempty"`
+	Size       int64  `msgpack:"size,omitempty"`
+	Received   int64  `msgpack:"received,omitempty"`
+	Total      int64  `msgpack:"total,omitempty"`
+	Error      string `msgpack:"error,omitempty"`
+}
+
+type ProcessInfo struct {
+	PID      int32   `msgpack:"pid"`
+	PPID     int32   `msgpack:"ppid"`
+	Name     string  `msgpack:"name"`
+	ExePath  string  `msgpack:"exePath,omitempty"`
+	CPU      float64 `msgpack:"cpu"`
+	Memory   uint64  `msgpack:"memory"`
+	Username string  `msgpack:"username,omitempty"`
+	Type     string  `msgpack:"type,omitempty"`
+	Self     bool    `msgpack:"self,omitempty"`
+}
+
+type ProcessListResult struct {
+	Type      string        `msgpack:"type"`
+	CommandID string        `msgpack:"commandId,omitempty"`
+	Processes []ProcessInfo `msgpack:"processes"`
+	Error     string        `msgpack:"error,omitempty"`
+}
+
+type FileReadResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	Path      string `msgpack:"path"`
+	Content   string `msgpack:"content"`
+	IsBinary  bool   `msgpack:"isBinary"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type FileSearchMatch struct {
+	Path  string `msgpack:"path"`
+	Line  int    `msgpack:"line,omitempty"`
+	Match string `msgpack:"match,omitempty"`
+}
+
+type FileSearchResult struct {
+	Type      string            `msgpack:"type"`
+	CommandID string            `msgpack:"commandId,omitempty"`
+	SearchID  string            `msgpack:"searchId"`
+	Results   []FileSearchMatch `msgpack:"results"`
+	Complete  bool              `msgpack:"complete"`
+	Error     string            `msgpack:"error,omitempty"`
+}
+
+type FileIconRequestItem struct {
+	Key  string `msgpack:"key"`
+	Path string `msgpack:"path,omitempty"`
+	Ext  string `msgpack:"ext,omitempty"`
+}
+
+type FileIconResultItem struct {
+	Key   string `msgpack:"key"`
+	PNG   []byte `msgpack:"png,omitempty"`
+	Error string `msgpack:"error,omitempty"`
+}
+
+type FileIconResult struct {
+	Type      string               `msgpack:"type"`
+	CommandID string               `msgpack:"commandId,omitempty"`
+	Icons     []FileIconResultItem `msgpack:"icons"`
+}
+
+type FileThumbnailRequestItem struct {
+	Key  string `msgpack:"key"`
+	Path string `msgpack:"path"`
+	Size int    `msgpack:"size,omitempty"`
+}
+
+type FileThumbnailResultItem struct {
+	Key   string `msgpack:"key"`
+	JPEG  []byte `msgpack:"jpeg,omitempty"`
+	W     int    `msgpack:"w,omitempty"`
+	H     int    `msgpack:"h,omitempty"`
+	Error string `msgpack:"error,omitempty"`
+}
+
+type FileThumbnailResult struct {
+	Type      string                    `msgpack:"type"`
+	CommandID string                    `msgpack:"commandId,omitempty"`
+	Thumbs    []FileThumbnailResultItem `msgpack:"thumbs"`
+}
+
+type FilePeekResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	Path      string `msgpack:"path"`
+	Data      []byte `msgpack:"data,omitempty"`
+	Size      int64  `msgpack:"size"`
+	IsText    bool   `msgpack:"isText"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type FileHashResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	Path      string `msgpack:"path"`
+	Algorithm string `msgpack:"algorithm"`
+	Digest    string `msgpack:"digest"`
+	Size      int64  `msgpack:"size"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type FolderSizeResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	Path      string `msgpack:"path"`
+	Bytes     int64  `msgpack:"bytes"`
+	Files     int64  `msgpack:"files"`
+	Dirs      int64  `msgpack:"dirs"`
+	Done      bool   `msgpack:"done"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type ScriptResult struct {
+	Type      string `msgpack:"type"`
+	CommandID string `msgpack:"commandId,omitempty"`
+	OK        bool   `msgpack:"ok"`
+	Output    string `msgpack:"output"`
+	Error     string `msgpack:"error,omitempty"`
+}
+
+type PluginEvent struct {
+	Type     string      `msgpack:"type"`
+	PluginID string      `msgpack:"pluginId"`
+	Event    string      `msgpack:"event"`
+	Payload  interface{} `msgpack:"payload,omitempty"`
+	Error    string      `msgpack:"error,omitempty"`
+}
+
+type Notification struct {
+	Type        string `msgpack:"type"`
+	Category    string `msgpack:"category"`
+	Title       string `msgpack:"title"`
+	Process     string `msgpack:"process,omitempty"`
+	ProcessPath string `msgpack:"processPath,omitempty"`
+	PID         int32  `msgpack:"pid,omitempty"`
+	Keyword     string `msgpack:"keyword,omitempty"`
+	TS          int64  `msgpack:"ts,omitempty"`
+}
+
+type WebcamDevice struct {
+	Index  int    `msgpack:"index"`
+	Name   string `msgpack:"name"`
+	MaxFPS int    `msgpack:"maxFps,omitempty"`
+}
+
+type WebcamDevices struct {
+	Type     string         `msgpack:"type"`
+	Devices  []WebcamDevice `msgpack:"devices"`
+	Selected int            `msgpack:"selected"`
+}
+
+type BackstageCloneProgress struct {
+	Type        string `msgpack:"type"`
+	Browser     string `msgpack:"browser"`
+	Percent     int    `msgpack:"percent"`
+	CopiedBytes int64  `msgpack:"copiedBytes"`
+	TotalBytes  int64  `msgpack:"totalBytes"`
+	Status      string `msgpack:"status"`
+}
+
+type BackstageDXGIStatus struct {
+	Type    string `msgpack:"type"`
+	Success bool   `msgpack:"success"`
+	GPUPid  uint32 `msgpack:"gpuPid"`
+	Message string `msgpack:"message"`
+}
+
+type BackstageLookupResult struct {
+	Type string `msgpack:"type"`
+	Exe  string `msgpack:"exe"`
+	Path string `msgpack:"path"`
+	Done bool   `msgpack:"done"`
+}
+
+type BackstageBrowserCheckResult struct {
+	Type     string          `msgpack:"type"`
+	Browsers map[string]bool `msgpack:"browsers"`
+}
+
+type BackstageInstalledApp struct {
+	Name    string `msgpack:"name"`
+	ExePath string `msgpack:"exePath"`
+	Icon    string `msgpack:"icon"`
+}
+
+type BackstageInstalledAppsResult struct {
+	Type string             `msgpack:"type"`
+	Apps []BackstageInstalledApp `msgpack:"apps"`
+	Done bool               `msgpack:"done"`
+}
+
+type BackstageBrowserLaunchStatus struct {
+	Type    string `msgpack:"type"`
+	Browser string `msgpack:"browser"`
+	Step    string `msgpack:"step"`
+	Success bool   `msgpack:"success"`
+	Detail  string `msgpack:"detail"`
+}
+
+type BackstageWindowEntry struct {
+	Title       string `msgpack:"title"`
+	X           int    `msgpack:"x"`
+	Y           int    `msgpack:"y"`
+	Width       int    `msgpack:"width"`
+	Height      int    `msgpack:"height"`
+	PID         uint32 `msgpack:"pid"`
+	ProcessName string `msgpack:"processName"`
+	Monitor     int    `msgpack:"monitor"`
+}
+
+type BackstageMonitorEntry struct {
+	Index   int    `msgpack:"index"`
+	Name    string `msgpack:"name"`
+	X       int    `msgpack:"x"`
+	Y       int    `msgpack:"y"`
+	Width   int    `msgpack:"width"`
+	Height  int    `msgpack:"height"`
+	Primary bool   `msgpack:"primary"`
+}
+
+type BackstageWindowListResult struct {
+	Type     string             `msgpack:"type"`
+	Windows  []BackstageWindowEntry  `msgpack:"windows"`
+	Monitors []BackstageMonitorEntry `msgpack:"monitors"`
+}
+
+type ClipboardContent struct {
+	Type   string `msgpack:"type"`
+	Text   string `msgpack:"text"`
+	Source string `msgpack:"source"`
+}
+
+type ProxyData struct {
+	Type         string `msgpack:"type"`
+	ConnectionID string `msgpack:"connectionId"`
+	Data         []byte `msgpack:"data"`
+}
+
+type ProxyClose struct {
+	Type         string `msgpack:"type"`
+	ConnectionID string `msgpack:"connectionId"`
+}
+
+type DisconnectInfo struct {
+	Type   string `msgpack:"type"`
+	Reason string `msgpack:"reason"`           // "normal", "panic", "crash", "network", "timeout"
+	Detail string `msgpack:"detail,omitempty"` // error message
+}
+
+type WebRTCP2PAnswer struct {
+	Type      string `msgpack:"type"`
+	SessionID string `msgpack:"sessionId"`
+	Kind      string `msgpack:"kind,omitempty"`
+	SDP       string `msgpack:"sdp"`
+}
+
+type WebRTCP2PIce struct {
+	Type          string `msgpack:"type"`
+	SessionID     string `msgpack:"sessionId"`
+	Kind          string `msgpack:"kind,omitempty"`
+	Candidate     string `msgpack:"candidate"`
+	SDPMid        string `msgpack:"sdpMid"`
+	SDPMLineIndex uint16 `msgpack:"sdpMLineIndex"`
+}
+
+type PrivacyStatus struct {
+	Type    string `msgpack:"type"`
+	Enabled bool   `msgpack:"enabled"`
+}

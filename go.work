@@ -1,0 +1,6 @@
+go 1.26.0
+
+use (
+	./Goylord-Client
+	./plugins/sample-go/native
+)

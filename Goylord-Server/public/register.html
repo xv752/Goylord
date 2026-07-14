@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Goylord - Register</title>
+    <link rel="icon" type="image/x-icon" href="/assets/favicon.ico" />
+    <link rel="stylesheet" href="/vendor/inter/400.css" />
+    <link rel="stylesheet" href="/vendor/inter/600.css" />
+    <link rel="stylesheet" href="/vendor/inter/700.css" />
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css" />
+    <link rel="stylesheet" href="/assets/main.css" />
+    <link rel="stylesheet" href="/assets/custom.css" />
+    <script src="/vendor/animejs/anime.min.js"></script>
+  </head>
+  <body class="login-body">
+    <div class="login-particles">
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+      <div class="particle"></div>
+    </div>
+    <div class="login-card">
+      <div class="login-crown-wrapper">
+        <i class="fa-solid fa-crown login-crown"></i>
+      </div>
+      <div class="brand login-brand">Goylord</div>
+      <h2 class="login-title">Create Account</h2>
+      <p class="muted login-subtitle">Register for access</p>
+      <form id="register-form">
+        <div class="form-group">
+          <label class="label">Username</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-user"></i
+            ><input
+              id="reg-user"
+              name="user"
+              type="text"
+              autocomplete="username"
+              required
+              minlength="3"
+              maxlength="32"
+              pattern="[a-zA-Z0-9_\-]+"
+              placeholder="Choose a username"
+            />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Password</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-lock"></i
+            ><input
+              id="reg-pass"
+              name="pass"
+              type="password"
+              autocomplete="new-password"
+              required
+              minlength="6"
+              placeholder="Choose a password"
+            />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="label">Confirm Password</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-lock"></i
+            ><input
+              id="reg-pass-confirm"
+              name="pass-confirm"
+              type="password"
+              autocomplete="new-password"
+              required
+              placeholder="Confirm password"
+            />
+          </div>
+        </div>
+        <div class="form-group" id="key-group" style="display: none">
+          <label class="label">Registration Key</label>
+          <div class="input-row input-animated">
+            <i class="fa-solid fa-key"></i
+            ><input
+              id="reg-key"
+              name="key"
+              type="text"
+              autocomplete="off"
+              placeholder="Enter your registration key"
+            />
+          </div>
+        </div>
+        <button type="submit" class="button primary full login-btn">
+          <span class="btn-text">Create Account</span>
+          <i class="fa-solid fa-user-plus btn-icon"></i>
+        </button>
+        <div id="error" class="error" aria-live="polite"></div>
+        <div id="success" class="success" aria-live="polite" style="display: none"></div>
+      </form>
+      <div style="text-align: center; margin-top: 1rem">
+        <a href="/" class="muted" style="font-size: 0.85rem; text-decoration: underline"
+          >Already have an account? Sign in</a
+        >
+      </div>
+    </div>
+    <script src="/assets/register.js"></script>
+  </body>
+</html>
