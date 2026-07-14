@@ -9,10 +9,8 @@ services:
       cache_to:
         - type=local,dest=.docker-cache/buildx,mode=max
     container_name: goylord-server
-    # Host networking: the container shares the host's network stack directly.
-    # Every port the server binds (5173, SOCKS5 proxies, etc.) is accessible
-    # on the host with zero overhead — no per-port proxy process.
-    network_mode: host
+    ports:
+      - "${PORT:-5173}:${PORT:-5173}"
     environment:
       PORT: ${PORT:-5173}
       HOST: ${HOST:-0.0.0.0}
@@ -52,7 +50,7 @@ services:
       # WebRTC: where Bun reaches MediaMTX HTTP (WHIP/WHEP signaling).
       # Host networking on Linux → localhost works. WebRTC is opt-in; leave the
       # toggle in the UI off if MediaMTX is not running.
-      GOYLORD_MEDIAMTX_URL: ${GOYLORD_MEDIAMTX_URL:-http://localhost:8889}
+      GOYLORD_MEDIAMTX_URL: ${GOYLORD_MEDIAMTX_URL:-http://goylord-mediamtx:8889}
     volumes:
       # goylord-data also caches downloaded cross-compile toolchains
       # under /app/data/toolchains, fetched on first agent build for a
@@ -80,9 +78,10 @@ services:
   mediamtx:
     image: bluenviron/mediamtx:latest
     container_name: goylord-mediamtx
-    # Share the host network so WebRTC ICE candidates use the host's real
-    # interfaces directly — no extra config needed for local or LAN browsers.
-    network_mode: host
+    ports:
+      - "8889:8889"
+      - "8189:8189/tcp"
+      - "8189:8189/udp"
     restart: unless-stopped
     environment:
       # Disable every protocol except WebRTC. The Goylord server proxies all
