@@ -139,8 +139,9 @@ fn go_back_to_connect(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
+    let index_url = Url::parse("index.html").map_err(|e| e.to_string())?;
     window
-        .eval("window.location.replace('index.html')")
+        .navigate(index_url)
         .map_err(|e| e.to_string())
 }
 
