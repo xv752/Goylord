@@ -551,6 +551,13 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
     clearClientPluginState(clientId: string) {
       deps.pluginLoadedByClient.delete(clientId);
       deps.pluginLoadingByClient.delete(clientId);
+      const prefix = `${clientId}:`;
+      for (const key of deps.pendingPluginEvents.keys()) {
+        if (key.startsWith(prefix)) deps.pendingPluginEvents.delete(key);
+      }
+      for (const key of pluginUIEventBuffer.keys()) {
+        if (key.startsWith(prefix)) pluginUIEventBuffer.delete(key);
+      }
     },
 
     isPluginLoaded(clientId: string, pluginId: string): boolean {
@@ -575,6 +582,9 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
       const key = `${clientId}:${pluginId}`;
       const list = deps.pendingPluginEvents.get(key) || [];
       list.push({ event, payload });
+      if (list.length > 200) {
+        list.splice(0, list.length - 100);
+      }
       deps.pendingPluginEvents.set(key, list);
     },
 

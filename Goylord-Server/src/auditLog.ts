@@ -1,11 +1,5 @@
-import Database from "bun:sqlite";
-import { resolve } from "path";
-import { ensureDataDir } from "./paths";
 import { metrics } from "./metrics";
-
-const dataDir = ensureDataDir();
-const dbPath = resolve(dataDir, "goylord.db");
-const db = new Database(dbPath);
+import { db } from "./db/connection";
 
 const auditQueue: AuditLogEntry[] = [];
 const BATCH_SIZE = 50;

@@ -205,7 +205,7 @@ export async function handleBackupRoutes(
 
     // Parse ZIP: read local file headers
     const decoder = new TextDecoder();
-    const entries: { name: string; data: Uint8Array }[] = [];
+    const entries: { name: string; data: Uint8Array; crc32: number }[] = [];
     let pos = 0;
 
     while (pos + 30 <= zipBytes.length) {
@@ -215,18 +215,33 @@ export async function handleBackupRoutes(
       const nameLen = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 26, 2).getUint32(0, true) & 0xffff;
       const extraLen = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 28, 2).getUint32(0, true) & 0xffff;
       const compSize = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 18, 4).getUint32(0, true);
+      const storedCrc = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 14, 4).getUint32(0, true);
       const name = decoder.decode(zipBytes.subarray(pos + 30, pos + 30 + nameLen));
       const dataStart = pos + 30 + nameLen + extraLen;
       const data = zipBytes.slice(dataStart, dataStart + compSize);
 
-      entries.push({ name, data });
+      entries.push({ name, data, crc32: storedCrc });
       pos = dataStart + compSize;
     }
 
     const applied: string[] = [];
     const warnings: string[] = [];
 
+    const allowedPatterns = /^(config\.json|database\.sqlite(-wal|-shm)?|users\.json|plugin-state\.json|custom\.css)$/;
+
     for (const entry of entries) {
+      if (entry.name.includes("..") || entry.name.startsWith("/") || entry.name.startsWith("\\") || entry.name.includes("\\..")) {
+        warnings.push(`Rejected path-traversal entry: ${entry.name}`);
+        continue;
+      }
+      if (!allowedPatterns.test(entry.name)) {
+        warnings.push(`Rejected unrecognized entry: ${entry.name}`);
+        continue;
+      }
+      if (crc32(entry.data) !== entry.crc32) {
+        warnings.push(`CRC32 mismatch for ${entry.name}, skipping`);
+        continue;
+      }
       if (entry.name === "config.json") {
         try {
           const configData = JSON.parse(decoder.decode(entry.data));

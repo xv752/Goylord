@@ -116,12 +116,20 @@ export async function verifyToken(token: string): Promise<JWTPayload | null> {
       audience: JWT_AUDIENCE,
     });
 
+    if (typeof payload.sub !== "string") return null;
+    if (typeof payload.userId !== "number") return null;
+    if (typeof payload.role !== "string") return null;
+    const validRoles = ["admin", "operator", "viewer"];
+    if (!validRoles.includes(payload.role)) return null;
+    if (typeof payload.iat !== "number") return null;
+    if (typeof payload.exp !== "number") return null;
+
     const jwtPayload: JWTPayload = {
-      sub: payload.sub as string,
-      userId: payload.userId as number,
+      sub: payload.sub,
+      userId: payload.userId,
       role: payload.role as UserRole,
-      iat: payload.iat as number,
-      exp: payload.exp as number,
+      iat: payload.iat,
+      exp: payload.exp,
       iss: payload.iss as string,
       aud: payload.aud as string,
     };

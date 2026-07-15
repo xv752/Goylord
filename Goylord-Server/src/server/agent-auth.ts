@@ -47,6 +47,9 @@ export function isAuthorizedAgentRequest(
 
   const headerToken = req.headers.get("x-agent-token");
   const queryToken = url.searchParams.get("token");
+  if (queryToken !== null) {
+    url.searchParams.delete("token");
+  }
   const isAuthed =
     (headerToken !== null && safeCompare(headerToken, token)) ||
     (queryToken !== null && safeCompare(queryToken, token));

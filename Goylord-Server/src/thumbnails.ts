@@ -1,5 +1,5 @@
-const THUMBNAIL_WIDTH = Math.max(64, Number(process.env.GOYLORD_THUMBNAIL_WIDTH || 1920));
-const THUMBNAIL_HEIGHT = Math.max(48, Number(process.env.GOYLORD_THUMBNAIL_HEIGHT || 1080));
+const THUMBNAIL_WIDTH = Math.min(7680, Math.max(64, Number(process.env.GOYLORD_THUMBNAIL_WIDTH) || 1920));
+const THUMBNAIL_HEIGHT = Math.min(4320, Math.max(48, Number(process.env.GOYLORD_THUMBNAIL_HEIGHT) || 1080));
 const THUMBNAIL_QUALITY = Math.min(95, Math.max(40, Number(process.env.GOYLORD_THUMBNAIL_QUALITY || 88)));
 const MAX_THUMBNAIL_SOURCE_BYTES = Math.max(
   256 * 1024,
@@ -128,6 +128,10 @@ export function setLatestFrame(id: string, bytes: Uint8Array, format: string) {
     return;
   }
   latestFrames.set(id, { bytes, format, capturedAt: Date.now() });
+  if (latestFrames.size > 500) {
+    const oldestKey = latestFrames.keys().next().value;
+    if (oldestKey) latestFrames.delete(oldestKey);
+  }
 }
 
 async function buildThumbnailBytes(bytes: Uint8Array, format: string): Promise<Uint8Array | null> {

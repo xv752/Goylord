@@ -106,14 +106,26 @@ export async function fetchPublicUrlBytes(
 ): Promise<{ bytes: Uint8Array; finalUrl: URL }> {
   let current = await validatePublicHttpUrl(rawUrl, lookupFn);
 
+  const hostname = normalizeHost(current.hostname);
+  const literalFamily = isIP(hostname);
+  const addresses = literalFamily ? [{ address: hostname }] : await lookupFn(hostname);
+  if (addresses.length === 0 || addresses.some((entry) => isPrivateOrLocalAddress(entry.address))) {
+    throw new Error("URLs pointing to private/internal addresses are not allowed");
+  }
+  const resolvedIp = addresses[0].address;
+  const useIPv6 = isIP(resolvedIp) === 6;
+  let fetchUrl = new URL(current.href);
+  fetchUrl.hostname = useIPv6 ? `[${resolvedIp}]` : resolvedIp;
+
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60_000);
     let response: Response;
     try {
-      response = await fetch(current, {
+      response = await fetch(fetchUrl, {
         redirect: "manual",
         signal: controller.signal,
+        headers: { "Host": current.host },
       });
     } finally {
       clearTimeout(timeout);
@@ -124,6 +136,16 @@ export async function fetchPublicUrlBytes(
       if (!location) throw new Error(`Remote fetch failed: ${response.status}`);
       if (redirects === 3) throw new Error("Too many redirects");
       current = await validatePublicHttpUrl(new URL(location, current).toString(), lookupFn);
+      const redirHostname = normalizeHost(current.hostname);
+      const redirFamily = isIP(redirHostname);
+      const redirAddresses = redirFamily ? [{ address: redirHostname }] : await lookupFn(redirHostname);
+      if (redirAddresses.length === 0 || redirAddresses.some((entry) => isPrivateOrLocalAddress(entry.address))) {
+        throw new Error("URLs pointing to private/internal addresses are not allowed");
+      }
+      const redirIp = redirAddresses[0].address;
+      const redirIPv6 = isIP(redirIp) === 6;
+      fetchUrl.hostname = redirIPv6 ? `[${redirIp}]` : redirIp;
+      fetchUrl.href = current.href;
       continue;
     }
 

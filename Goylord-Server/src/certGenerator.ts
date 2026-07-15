@@ -10,6 +10,13 @@ interface CertOptions {
   additionalIPs?: string[];
 }
 
+function sanitizeSanValue(value: string): string {
+  if (!/^[a-zA-Z0-9._:\-\[\]]+$/.test(value)) {
+    throw new Error(`Invalid SAN value: ${value}`);
+  }
+  return value;
+}
+
 export function certificatesExist(certPath: string, keyPath: string): boolean {
   return existsSync(certPath) && existsSync(keyPath);
 }
@@ -30,8 +37,11 @@ export async function generateSelfSignedCert(
     mkdirSync(certDir, { recursive: true });
   }
 
+  const safeCN = sanitizeSanValue(commonName);
+  const safeIPs = additionalIPs.map(sanitizeSanValue);
+
   console.log("[TLS] Generating self-signed certificate...");
-  console.log(`[TLS] Common Name: ${commonName}`);
+  console.log(`[TLS] Common Name: ${safeCN}`);
   console.log(`[TLS] Valid for: ${daysValid} days`);
 
   const sanConfig = `
@@ -49,7 +59,7 @@ ST=State
 L=City
 O=Goylord
 OU=IT
-CN=${commonName}
+CN=${safeCN}
 
 [req_ext]
 subjectAltName = @alt_names
@@ -61,12 +71,12 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 
 [alt_names]
-DNS.1 = ${commonName}
+DNS.1 = ${safeCN}
 DNS.2 = localhost
 DNS.3 = *.local
 IP.1 = 127.0.0.1
 IP.2 = ::1
-${additionalIPs.map((ip, i) => `IP.${i + 3} = ${ip}`).join("\n")}
+${safeIPs.map((ip, i) => `IP.${i + 3} = ${ip}`).join("\n")}
 `;
 
   const configPath = `${certDir}/openssl.cnf`;
