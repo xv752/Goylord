@@ -108,6 +108,9 @@ export async function handleEnrollmentRoutes(
   if (req.method === "GET" && url.pathname === "/api/enrollment/settings") {
     const user = await authenticateRequest(req);
     if (!user) return new Response("Unauthorized", { status: 401 });
+    if (user.role !== "admin") {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
 
     const config = getConfig();
     return Response.json({

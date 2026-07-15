@@ -137,6 +137,11 @@ export async function handleRegistrationRoutes(
         return Response.json({ error: "A registration key is required" }, { status: 400 });
       }
 
+      const policyError = validatePasswordPolicy(password);
+      if (policyError) {
+        return Response.json({ error: policyError }, { status: 400 });
+      }
+
       const result = await registerUser(username, password, "key", defaultRole);
       if (!result.success) {
         return Response.json({ error: result.error }, { status: 400 });

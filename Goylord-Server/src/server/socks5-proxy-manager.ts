@@ -259,7 +259,26 @@ function writeToTunnelSocket(
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
   if (tunnel.writeQueue.length > 0) {
     if (tunnel.writeQueue.length >= MAX_WRITE_QUEUE_BUFFERS) {
-      logger.warn(`[socks5] writeQueue overflow, dropping data`);
+      logger.warn(`[socks5] writeQueue overflow, closing tunnel`);
+      for (const entry of activeProxies.values()) {
+        for (const [connId, t] of entry.connections) {
+          if (t === tunnel) {
+            entry.connections.delete(connId);
+            try { tunnel.socket.end(); } catch {}
+            const agent = clientManager.getClient(entry.clientId);
+            if (agent) {
+              try {
+                agent.ws.send(encodeMessage({
+                  type: "command",
+                  commandType: "proxy_close",
+                  id: connId,
+                } as any));
+              } catch {}
+            }
+            return;
+          }
+        }
+      }
       return;
     }
     tunnel.writeQueue.push(buf);

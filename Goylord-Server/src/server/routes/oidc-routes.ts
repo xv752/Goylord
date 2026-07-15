@@ -35,9 +35,14 @@ export async function handleOidcRoutes(
   if (req.method === "GET" && url.pathname === "/api/oidc/callback") {
     const ip = server.requestIP(req)?.address || "unknown";
     try {
-      const { user, returnTo } = await completeOidcLogin(req, url);
+      const { user, returnTo: rawReturnTo } = await completeOidcLogin(req, url);
       const mfaBlockReason = getOidcLocalMfaBlockReason(user);
       if (mfaBlockReason) throw new Error(mfaBlockReason);
+
+      let returnTo = rawReturnTo;
+      if (!returnTo.startsWith("/") || returnTo.includes("://") || returnTo.startsWith("//")) {
+        returnTo = "/";
+      }
 
       const userAgent = req.headers.get("User-Agent") || null;
       const token = await generateToken(user, { ip, userAgent: userAgent || undefined });

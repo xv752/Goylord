@@ -643,12 +643,29 @@ export async function handleMiscRoutes(
         }
       }
 
+      const parsed: Record<string, unknown> = {};
+      if (typeof body?.passwordMinLength === "number") {
+        parsed.passwordMinLength = Math.max(1, Math.floor(body.passwordMinLength));
+      }
+      if (typeof body?.loginMaxAttempts === "number") {
+        parsed.loginMaxAttempts = Math.max(1, Math.floor(body.loginMaxAttempts));
+      }
+      if (typeof body?.sessionTtlHours === "number") {
+        parsed.sessionTtlHours = Math.max(1, Math.floor(body.sessionTtlHours));
+      }
+      if (typeof body?.loginLockoutMinutes === "number") {
+        parsed.loginLockoutMinutes = Math.max(0, Math.floor(body.loginLockoutMinutes));
+      }
+      if (typeof body?.loginWindowMinutes === "number") {
+        parsed.loginWindowMinutes = Math.max(1, Math.floor(body.loginWindowMinutes));
+      }
+
       const updated = await updateSecurityConfig({
-        sessionTtlHours: Number(body?.sessionTtlHours),
-        loginMaxAttempts: Number(body?.loginMaxAttempts),
-        loginWindowMinutes: Number(body?.loginWindowMinutes),
-        loginLockoutMinutes: Number(body?.loginLockoutMinutes),
-        passwordMinLength: Number(body?.passwordMinLength),
+        sessionTtlHours: Number(parsed.sessionTtlHours ?? body?.sessionTtlHours),
+        loginMaxAttempts: Number(parsed.loginMaxAttempts ?? body?.loginMaxAttempts),
+        loginWindowMinutes: Number(parsed.loginWindowMinutes ?? body?.loginWindowMinutes),
+        loginLockoutMinutes: Number(parsed.loginLockoutMinutes ?? body?.loginLockoutMinutes),
+        passwordMinLength: Number(parsed.passwordMinLength ?? body?.passwordMinLength),
         passwordRequireUppercase: Boolean(body?.passwordRequireUppercase),
         passwordRequireLowercase: Boolean(body?.passwordRequireLowercase),
         passwordRequireNumber: Boolean(body?.passwordRequireNumber),
