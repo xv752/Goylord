@@ -143,7 +143,34 @@ static BOOL EnsureSharedMemory(UINT width, UINT height) {
     DWORD sizeHigh = (DWORD)(needed >> 32);
     DWORD sizeLow  = (DWORD)(needed & 0xFFFFFFFF);
 
-    g_ShmHandle = CreateFileMappingW(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, sizeHigh, sizeLow, wShmName);
+    SECURITY_ATTRIBUTES sa = {0};
+    SECURITY_DESCRIPTOR sd;
+    InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+
+    HANDLE hToken;
+    OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken);
+    DWORD tokenInfoLen = 0;
+    GetTokenInformation(hToken, TokenUser, NULL, 0, &tokenInfoLen);
+    PTOKEN_USER pTokenUser = (PTOKEN_USER)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, tokenInfoLen);
+    GetTokenInformation(hToken, TokenUser, pTokenUser, tokenInfoLen, &tokenInfoLen);
+    CloseHandle(hToken);
+
+    EXPLICIT_ACCESS ea = {0};
+    ea.grfAccessPermissions = GENERIC_ALL;
+    ea.grfAccessMode = SET_ACCESS;
+    ea.grfInheritance = NO_INHERITANCE;
+    ea.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    ea.Trustee.ptstrName = (LPTSTR)pTokenUser->User.Sid;
+
+    PACL pDacl = NULL;
+    SetEntriesInAcl(1, &ea, NULL, &pDacl);
+    SetSecurityDescriptorDacl(&sd, TRUE, pDacl, FALSE);
+
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.lpSecurityDescriptor = &sd;
+    sa.bInheritHandle = FALSE;
+
+    g_ShmHandle = CreateFileMappingW(INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, sizeHigh, sizeLow, wShmName);
     if (!g_ShmHandle) {
         DebugLog("[BackstageCapture] CreateFileMappingW failed: %lu\n", GetLastError());
         return FALSE;

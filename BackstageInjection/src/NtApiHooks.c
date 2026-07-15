@@ -43,6 +43,8 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
     #define UNICODE_STRING_MAX_WCHARS  ((SIZE_T)32767)
     static BOOL g_HooksInitialized = FALSE;
 
+    static SRWLOCK g_hookSrwLock = SRWLOCK_INIT;
+
     // Helper function for case-insensitive wide string comparison.
     // Uses CompareStringOrdinal so Cyrillic, Greek, and other non-ASCII
     // characters are properly case-folded (fixing crashes on Russian/Chinese
@@ -418,9 +420,11 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
+        AcquireSRWLockShared(&g_hookSrwLock);
         NTSTATUS result = OriginalNtCreateFile(FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock,
             AllocationSize, FileAttributes, ShareAccess, CreateDisposition,
             CreateOptions, EaBuffer, EaLength);
+        ReleaseSRWLockShared(&g_hookSrwLock);
 
         if (originalString) {
             ObjectAttributes->ObjectName = originalString;
@@ -472,7 +476,9 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
+        AcquireSRWLockShared(&g_hookSrwLock);
         NTSTATUS result = OriginalNtOpenFile(FileHandle, DesiredAccess, ObjectAttributes, IoStatusBlock, ShareAccess, OpenOptions);
+        ReleaseSRWLockShared(&g_hookSrwLock);
 
         if (originalString) {
             ObjectAttributes->ObjectName = originalString;
@@ -517,7 +523,9 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
+        AcquireSRWLockShared(&g_hookSrwLock);
         NTSTATUS result = OriginalNtDeleteFile(ObjectAttributes);
+        ReleaseSRWLockShared(&g_hookSrwLock);
 
         if (originalString) {
             ObjectAttributes->ObjectName = originalString;
@@ -607,7 +615,9 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
                             newPath = NULL;
 
                             if (newRenameInfo) {
+                                AcquireSRWLockShared(&g_hookSrwLock);
                                 NTSTATUS result = OriginalNtSetInformationFile(FileHandle, IoStatusBlock, newRenameInfo, newInfoSize, FileInformationClass);
+                                ReleaseSRWLockShared(&g_hookSrwLock);
                                 HeapFree(GetProcessHeap(), 0, newRenameInfo);
                                 return result;
                             }
@@ -621,7 +631,10 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             if (newPath) { HeapFree(GetProcessHeap(), 0, newPath); newPath = NULL; }
         }
 
-        return OriginalNtSetInformationFile(FileHandle, IoStatusBlock, FileInformation, Length, FileInformationClass);
+        AcquireSRWLockShared(&g_hookSrwLock);
+        NTSTATUS result2 = OriginalNtSetInformationFile(FileHandle, IoStatusBlock, FileInformation, Length, FileInformationClass);
+        ReleaseSRWLockShared(&g_hookSrwLock);
+        return result2;
     }
 
     NTSTATUS NTAPI HookedNtQueryAttributesFile(
@@ -662,7 +675,9 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
+        AcquireSRWLockShared(&g_hookSrwLock);
         NTSTATUS result = OriginalNtQueryAttributesFile(ObjectAttributes, FileInformation);
+        ReleaseSRWLockShared(&g_hookSrwLock);
 
         if (originalString) {
             ObjectAttributes->ObjectName = originalString;
@@ -710,7 +725,9 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             if (buffer) { HeapFree(GetProcessHeap(), 0, buffer); buffer = NULL; }
         }
 
+        AcquireSRWLockShared(&g_hookSrwLock);
         NTSTATUS result = OriginalNtQueryFullAttributesFile(ObjectAttributes, FileInformation);
+        ReleaseSRWLockShared(&g_hookSrwLock);
 
         if (originalString) {
             ObjectAttributes->ObjectName = originalString;
@@ -734,9 +751,12 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
         BOOLEAN RestartScan
     ) {
         if (!OriginalNtQueryDirectoryFile) return 0xC0000001L; // STATUS_UNSUCCESSFUL
-        return OriginalNtQueryDirectoryFile(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock,
+        AcquireSRWLockShared(&g_hookSrwLock);
+        NTSTATUS result = OriginalNtQueryDirectoryFile(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock,
             FileInformation, Length, FileInformationClass,
             ReturnSingleEntry, FileName, RestartScan);
+        ReleaseSRWLockShared(&g_hookSrwLock);
+        return result;
     }
 
     NTSTATUS NTAPI HookedNtQueryDirectoryFileEx(
@@ -752,9 +772,12 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
         PUNICODE_STRING FileName
     ) {
         if (!OriginalNtQueryDirectoryFileEx) return 0xC0000001L; // STATUS_UNSUCCESSFUL
-        return OriginalNtQueryDirectoryFileEx(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock,
+        AcquireSRWLockShared(&g_hookSrwLock);
+        NTSTATUS result = OriginalNtQueryDirectoryFileEx(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock,
             FileInformation, Length, FileInformationClass,
             QueryFlags, FileName);
+        ReleaseSRWLockShared(&g_hookSrwLock);
+        return result;
     }
 
     // Inject the DLL into a child process via reflective injection (no file on disk)
@@ -871,7 +894,7 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
         }
 
         LPVOID remoteMem = VirtualAllocEx(hProcess, NULL, dllSize,
-            MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+            MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!remoteMem) {
             return FALSE;
         }
@@ -881,6 +904,9 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);
             return FALSE;
         }
+
+        DWORD oldProtect;
+        VirtualProtectEx(hProcess, remoteMem, dllSize, PAGE_EXECUTE_READ, &oldProtect);
 
         LPTHREAD_START_ROUTINE remoteLoader =
             (LPTHREAD_START_ROUTINE)((BYTE*)remoteMem + loaderOffset);
@@ -943,6 +969,7 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
         BOOL wasSuspended = (dwCreationFlags & CREATE_SUSPENDED) != 0;
         DWORD modifiedFlags = dwCreationFlags | CREATE_SUSPENDED;
 
+        AcquireSRWLockShared(&g_hookSrwLock);
         BOOL result = OriginalCreateProcessW(
             lpApplicationName, lpCommandLine,
             lpProcessAttributes, lpThreadAttributes,
@@ -950,6 +977,7 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             lpEnvironment, lpCurrentDirectory,
             lpStartupInfo, lpProcessInformation
         );
+        ReleaseSRWLockShared(&g_hookSrwLock);
 
         if (result && lpProcessInformation) {
             ReflectiveInjectIntoChild(lpProcessInformation->hProcess, localDllBytes, localDllSize);
@@ -1160,10 +1188,8 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             // Disable JMP patches in all target functions.
             MH_DisableHook(MH_ALL_HOOKS);
 
-            // Give any thread that passed the g_HooksInitialized guard but has not yet
-            // called Original*() a brief window to finish.  This is a best-effort
-            // mitigation; a proper fix requires a reader-writer barrier (e.g. SRWLOCK).
-            Sleep(50);
+            // Acquire exclusive lock to drain any in-flight hook calls.
+            AcquireSRWLockExclusive(&g_hookSrwLock);
 
             // Free trampoline memory.  After this point the Original* pointers are
             // dangling.  NULL them immediately so any racing thread that calls through
@@ -1180,6 +1206,8 @@ static inline void _backstage_wcsncpy_s(wchar_t *dst, size_t dstSize, const wcha
             OriginalNtQueryDirectoryFile     = NULL;
             OriginalNtQueryDirectoryFileEx   = NULL;
             OriginalCreateProcessW           = NULL;
+
+            ReleaseSRWLockExclusive(&g_hookSrwLock);
 
             if (g_DllRawBytes) {
                 UnmapViewOfFile(g_DllRawBytes);
