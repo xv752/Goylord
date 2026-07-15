@@ -96,13 +96,17 @@ func SetbackstageTargetFPS(fps int) int {
 }
 
 func backstageSelect(ctx context.Context, env *rt.Env, display int) error {
+	env.BackstageMu.Lock()
 	prev := env.BackstageSelectedDisplay
+	env.BackstageMu.Unlock()
 	maxDisplays := capture.BackstageMonitorCount()
 	if display < 0 || display >= maxDisplays {
 		log.Printf("backstage: WARNING - requested display %d out of range (0-%d), clamping to 0", display, maxDisplays-1)
 		display = 0
 	}
+	env.BackstageMu.Lock()
 	env.BackstageSelectedDisplay = display
+	env.BackstageMu.Unlock()
 
 	persistbackstageDisplaySelection(display)
 	log.Printf("backstage: set selected display from %d to %d (reported monitors=%d, will capture monitor at index %d)", prev, display, maxDisplays, display)
@@ -110,19 +114,25 @@ func backstageSelect(ctx context.Context, env *rt.Env, display int) error {
 }
 
 func backstageMouseControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.BackstageMu.Lock()
 	env.BackstageMouseControl = enabled
+	env.BackstageMu.Unlock()
 	log.Printf("backstage: mouse control %v", enabled)
 	return nil
 }
 
 func backstageKeyboardControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.BackstageMu.Lock()
 	env.BackstageKeyboardControl = enabled
+	env.BackstageMu.Unlock()
 	log.Printf("backstage: keyboard control %v", enabled)
 	return nil
 }
 
 func backstageCursorControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.BackstageMu.Lock()
 	env.BackstageCursorCapture = enabled
+	env.BackstageMu.Unlock()
 	capture.SetbackstageCursorCapture(enabled)
 	log.Printf("backstage: cursor capture %v", enabled)
 	return nil

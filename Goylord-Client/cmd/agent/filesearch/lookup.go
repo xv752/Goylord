@@ -1,6 +1,7 @@
 package filesearch
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ var SkipDirs = map[string]bool{
 
 type ResultFunc func(path string)
 
-func LookupExe(exeName string, workers int, onResult ResultFunc) {
+func LookupExe(ctx context.Context, exeName string, workers int, onResult ResultFunc) {
 	//garble:controlflow block_splits=10 junk_jumps=10 flatten_passes=2
 	if workers <= 0 {
 		workers = 8
@@ -40,7 +41,7 @@ func LookupExe(exeName string, workers int, onResult ResultFunc) {
 				}
 			}()
 			for dir := range dirs {
-				walkDir(dir, lowerExe, dirs, &inflight, onResult)
+				walkDir(ctx, dir, lowerExe, dirs, &inflight, onResult)
 				inflight.Done()
 			}
 		}()
@@ -72,26 +73,35 @@ func LookupExe(exeName string, workers int, onResult ResultFunc) {
 	wg.Wait()
 }
 
-func walkDir(root, lowerExe string, dirs chan<- string, inflight *sync.WaitGroup, onResult ResultFunc) {
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		full := filepath.Join(root, e.Name())
-		if e.IsDir() {
-			if SkipDirs[strings.ToLower(e.Name())] {
-				continue
+func walkDir(ctx context.Context, root, lowerExe string, dirs chan<- string, inflight *sync.WaitGroup, onResult ResultFunc) {
+	stack := []string{root}
+	for len(stack) > 0 {
+		if ctx.Err() != nil {
+			return
+		}
+		dir := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			full := filepath.Join(dir, e.Name())
+			if e.IsDir() {
+				if SkipDirs[strings.ToLower(e.Name())] {
+					continue
+				}
+				inflight.Add(1)
+				select {
+				case dirs <- full:
+				default:
+					inflight.Done()
+					stack = append(stack, full)
+				}
+			} else if strings.ToLower(e.Name()) == lowerExe {
+				onResult(full)
 			}
-			inflight.Add(1)
-			select {
-			case dirs <- full:
-			default:
-				inflight.Done()
-				walkDir(full, lowerExe, dirs, inflight, onResult)
-			}
-		} else if strings.ToLower(e.Name()) == lowerExe {
-			onResult(full)
 		}
 	}
 }

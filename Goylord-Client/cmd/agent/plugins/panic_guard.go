@@ -8,10 +8,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"time"
 )
 
 const crashLogFileName = "crashlogC.log"
+
+var crashLogMu sync.Mutex
 
 func goSafe(label string, cancel context.CancelFunc, fn func()) {
 	go func() {
@@ -33,6 +36,8 @@ func recoverAndLog(label string, cancel context.CancelFunc) {
 }
 
 func writeCrashLog(reason string, stack []byte) string {
+	crashLogMu.Lock()
+	defer crashLogMu.Unlock()
 	dir := os.TempDir()
 	_ = os.MkdirAll(dir, 0700)
 	path := filepath.Join(dir, crashLogFileName)

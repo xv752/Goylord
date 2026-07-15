@@ -83,6 +83,9 @@ func runClient(cfg config.Config) {
 
 		conn, resp, err := websocket.Dial(ctx, url, opts)
 		if err != nil {
+			if resp != nil && resp.Body != nil {
+				resp.Body.Close()
+			}
 			log.Printf("dial failed [%s]: %v (retrying in %s)", classifyDialError(err), err, backoff)
 			consecutiveFailures++
 			if lastDisconnect.IsZero() {

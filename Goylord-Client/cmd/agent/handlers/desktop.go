@@ -90,13 +90,17 @@ func clampDesktopTargetFPS(fps int) int {
 }
 
 func DesktopSelect(ctx context.Context, env *rt.Env, display int) error {
+	env.DesktopMu.Lock()
 	prev := env.SelectedDisplay
+	env.DesktopMu.Unlock()
 	maxDisplays := capture.MonitorCount()
 	if display < 0 || display >= maxDisplays {
 		log.Printf("desktop: WARNING - requested display %d out of range (0-%d), clamping to 0", display, maxDisplays-1)
 		display = 0
 	}
+	env.DesktopMu.Lock()
 	env.SelectedDisplay = display
+	env.DesktopMu.Unlock()
 
 	persistDisplaySelection(display)
 	if prev != display {
@@ -108,12 +112,16 @@ func DesktopSelect(ctx context.Context, env *rt.Env, display int) error {
 }
 
 func DesktopMouseControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.DesktopMu.Lock()
 	env.MouseControl = enabled
+	env.DesktopMu.Unlock()
 	return nil
 }
 
 func DesktopKeyboardControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.DesktopMu.Lock()
 	env.KeyboardControl = enabled
+	env.DesktopMu.Unlock()
 	return nil
 }
 

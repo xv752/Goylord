@@ -26,7 +26,7 @@ type Env struct {
 	DesktopDuplication bool
 	DesktopCancel      context.CancelFunc
 	DesktopDone        chan struct{}
-	DesktopMu          sync.Mutex
+	DesktopMu          sync.RWMutex
 	// backstage fields
 	BackstageSelectedDisplay int
 	BackstageMouseControl    bool
@@ -34,14 +34,14 @@ type Env struct {
 	BackstageCursorCapture   bool
 	BackstageCancel          context.CancelFunc
 	BackstageDone            chan struct{}
-	BackstageMu              sync.Mutex
+	BackstageMu              sync.RWMutex
 	// Virtual mode fields
 	VirtualMouseControl    bool
 	VirtualKeyboardControl bool
 	VirtualCursorCapture   bool
 	VirtualCancel          context.CancelFunc
 	VirtualDone            chan struct{}
-	VirtualMu              sync.Mutex
+	VirtualMu              sync.RWMutex
 	// Webcam shit
 	WebcamDeviceIndex int
 	WebcamFPS         int
@@ -50,7 +50,7 @@ type Env struct {
 	WebcamCodec       string
 	WebcamCancel      context.CancelFunc
 	WebcamDone        chan struct{}
-	WebcamMu          sync.Mutex
+	WebcamMu          sync.RWMutex
 	// Cliboard sync stuff
 	ClipboardSyncCancel context.CancelFunc
 	ClipboardSyncDone   chan struct{}

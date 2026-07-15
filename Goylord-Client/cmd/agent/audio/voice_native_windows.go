@@ -163,12 +163,18 @@ func (b *playbackBuffer) Pop(n int) []byte {
 	return out
 }
 
+type pendingPlayback struct {
+	hdr *_waveHdr
+	buf []byte
+}
+
 // Session
 type Session struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	hWaveIn    uintptr
 	hWaveOut   uintptr
+	outID      uintptr
 	bufSize    int
 	hdrs       []*_waveHdr
 	wg         sync.WaitGroup
@@ -177,6 +183,16 @@ type Session struct {
 	queue      *playbackBuffer
 	id         uintptr
 	playWg     sync.WaitGroup
+	pendingMu  sync.Mutex
+	pendingBufs []pendingPlayback
+}
+
+func (s *Session) onPlaybackDone() {
+	s.pendingMu.Lock()
+	if len(s.pendingBufs) > 0 {
+		s.pendingBufs = s.pendingBufs[1:]
+	}
+	s.pendingMu.Unlock()
 }
 
 func _targetFormat() *_waveFormat {
@@ -359,26 +375,34 @@ func StartVoiceSession(parent context.Context, source string, onCapture func([]b
 		return nil, err
 	}
 
-	hOut, err := _openWaveOut()
+	ctx, cancel := context.WithCancel(parent)
+	s := &Session{
+		ctx:      ctx,
+		cancel:   cancel,
+		hWaveIn:  hIn,
+		hdrs:     hdrs,
+		queue:    &playbackBuffer{},
+		id:       inst,
+	}
+
+	hOut, err := _openWaveOut(uintptr(unsafe.Pointer(s)))
 	if err != nil {
 		_procWaveInStop.Call(hIn)
 		for _, hdr := range hdrs {
 			_procWaveInUnprepare.Call(hIn, uintptr(unsafe.Pointer(hdr)), unsafe.Sizeof(_waveHdr{}))
 		}
 		_procWaveInClose.Call(hIn)
+		cancel()
 		return nil, fmt.Errorf("render open: %w", err)
 	}
+	s.hWaveOut = hOut
+	s.outID = uintptr(unsafe.Pointer(s))
 
-	ctx, cancel := context.WithCancel(parent)
-	s := &Session{
-		ctx:      ctx,
-		cancel:   cancel,
-		hWaveIn:  hIn,
-		hWaveOut: hOut,
-		hdrs:     hdrs,
-		queue:    &playbackBuffer{},
-		id:       inst,
+	_callbackMu.Lock()
+	_callbackData[s.outID] = &_callbackState{
+		onPlayback: func() { s.onPlaybackDone() },
 	}
+	_callbackMu.Unlock()
 
 	// Playback pump
 	s.playWg.Add(1)
@@ -390,14 +414,16 @@ func StartVoiceSession(parent context.Context, source string, onCapture func([]b
 	return s, nil
 }
 
-func _openWaveOut() (uintptr, error) {
+func _openWaveOut(inst uintptr) (uintptr, error) {
 	wfx := _targetFormat()
 	var h uintptr
 	r, _, _ := _procWaveOutOpen.Call(
 		uintptr(unsafe.Pointer(&h)),
 		_waveMapper,
 		uintptr(unsafe.Pointer(wfx)),
-		0, 0, 0,
+		_newCallback,
+		inst,
+		0x00030000, // CALLBACK_FUNCTION
 	)
 	if r != 0 {
 		return 0, fmt.Errorf("waveOutOpen: %d", r)
@@ -437,6 +463,9 @@ func (s *Session) _playLoop() {
 			bufferLen: uint32(len(buf)),
 		}
 		_procWaveOutPrepare.Call(s.hWaveOut, uintptr(unsafe.Pointer(hdr)), unsafe.Sizeof(_waveHdr{}))
+		s.pendingMu.Lock()
+		s.pendingBufs = append(s.pendingBufs, pendingPlayback{hdr: hdr, buf: buf})
+		s.pendingMu.Unlock()
 		_procWaveOutWrite.Call(s.hWaveOut, uintptr(unsafe.Pointer(hdr)), unsafe.Sizeof(_waveHdr{}))
 	}
 }
@@ -494,6 +523,13 @@ func (s *Session) Close() error {
 
 	s.cancel()
 
+	if s.hWaveOut != 0 {
+		s.playWg.Wait()
+		_procWaveOutReset.Call(s.hWaveOut)
+		_procWaveOutClose.Call(s.hWaveOut)
+		s.hWaveOut = 0
+	}
+
 	if s.hWaveIn != 0 {
 		_procWaveInStop.Call(s.hWaveIn)
 		for _, hdr := range s.hdrs {
@@ -502,17 +538,14 @@ func (s *Session) Close() error {
 		_procWaveInClose.Call(s.hWaveIn)
 		s.hWaveIn = 0
 	}
-	if s.hWaveOut != 0 {
-		_procWaveOutReset.Call(s.hWaveOut)
-		_procWaveOutClose.Call(s.hWaveOut)
-		s.hWaveOut = 0
-	}
 
 	_callbackMu.Lock()
 	delete(_callbackData, s.id)
+	if s.outID != 0 {
+		delete(_callbackData, s.outID)
+	}
 	_callbackMu.Unlock()
 
-	s.playWg.Wait()
 	return nil
 }
 
