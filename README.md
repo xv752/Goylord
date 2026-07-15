@@ -12,7 +12,7 @@ Remote access and fleet management platform. TypeScript server on Bun, Go agent,
 
 Pick your OS. Each section is self-contained.
 
-After first start, open `https://localhost:5173`. Default login: `admin` / `adminadmin`.
+After first start, open `https://localhost:5173`. Default login: `admin` / `admin`. You must change the password on first login.
 
 ### Windows
 
