@@ -1129,10 +1129,11 @@ func runBoundFiles() {
             } catch (err: any) {
               sendToStream({
                 type: "output",
-                text: `ERROR: Failed to provision cross-compile toolchain for ${targetKey}: ${err.message || err}\n`,
-                level: "error",
+                text: `WARNING: Failed to provision cross-compile toolchain for ${targetKey}: ${err.message || err}\nFalling back to CGO disabled.\n`,
+                level: "warn",
               });
-              throw err;
+              env.CGO_ENABLED = "0";
+              cc = undefined;
             }
           }
         }
