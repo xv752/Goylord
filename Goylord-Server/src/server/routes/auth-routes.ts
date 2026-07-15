@@ -42,6 +42,7 @@ import {
 import { getUserPermissions, requirePermission } from "../../rbac";
 import { makeAuthCookie, makeAuthCookieClear } from "./auth-cookie";
 
+
 type RequestIpProvider = {
   requestIP: (req: Request) => { address?: string } | null | undefined;
 };
@@ -146,6 +147,10 @@ export async function handleAuthRoutes(
 
         recordSuccessfulAttempt(ip);
 
+        const respHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Set-Cookie": makeAuthCookie(token, sessionTtlSeconds, req),
+        };
         return new Response(
           JSON.stringify({
             ok: true,
@@ -158,10 +163,7 @@ export async function handleAuthRoutes(
             },
           }),
           {
-            headers: {
-              "Content-Type": "application/json",
-              "Set-Cookie": makeAuthCookie(token, sessionTtlSeconds, req),
-            },
+            headers: respHeaders,
           },
         );
       }
@@ -512,7 +514,10 @@ export async function handleAuthRoutes(
         permissions,
       }),
       {
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store, private",
+        },
       },
     );
   }

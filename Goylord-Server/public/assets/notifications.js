@@ -879,7 +879,7 @@ function wireTelegramSave() {
 // ── Init role-based UI ────────────────────────────────────────────────────────
 async function initRoleUi() {
   try {
-    const res = await fetch("/api/auth/me");
+    const res = await fetch("/api/auth/me", { credentials: "include" });
     if (!res.ok) return;
     const data = await res.json();
     const role = data?.role || "";

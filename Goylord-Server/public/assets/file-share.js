@@ -25,7 +25,7 @@ if (uploadMaxDownloads) uploadMaxDownloads.disabled = true;
 
 async function loadCurrentUser() {
   try {
-    const res = await fetch("/api/auth/me");
+    const res = await fetch("/api/auth/me", { credentials: "include" });
     if (!res.ok) {
       window.location.href = "/";
       return;

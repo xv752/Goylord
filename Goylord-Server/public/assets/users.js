@@ -21,7 +21,7 @@ const currentRoleEl = document.getElementById("role-badge");
 
 async function getCurrentUser() {
   try {
-    const res = await fetch("/api/auth/me");
+    const res = await fetch("/api/auth/me", { credentials: "include" });
     if (res.ok) {
       currentUser = await res.json();
       currentUserEl.textContent = currentUser.username;
