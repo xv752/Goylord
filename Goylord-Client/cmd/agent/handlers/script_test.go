@@ -50,10 +50,10 @@ func TestHandleScriptExecuteStripsCarriageReturn(t *testing.T) {
 	}
 
 	scriptType := "sh"
-	script := "echo\r\ndone\r\n"
+	script := "echo hello\r\necho world\r\n"
 	if goruntime.GOOS == "windows" {
 		scriptType = "cmd"
-		script = "echo\r\nping 127.0.0.1 -n 1 >NUL\r\n"
+		script = "echo hello\r\nping 127.0.0.1 -n 1 >NUL\r\n"
 	}
 
 	envelope := map[string]interface{}{
