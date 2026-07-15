@@ -1,6 +1,7 @@
 import { NAV_GROUPS } from "./nav/template.js";
 import { CAPTURE_FLAG } from "./keyboard-capture.js";
 import { osBadge } from "./viewUtils.js";
+import { escapeHtml } from "./format.js";
 
 const ALL_PER_CLIENT_ACTIONS = [
   { key: "console",    feature: "console",        label: "Console",        icon: "fa-terminal",     color: "text-emerald-400", href: (id) => `/${id}/console` },
@@ -171,9 +172,9 @@ function renderRow(r, active, idx) {
   const idAttr = ` id="cmdp-opt-${idx}"`;
   const activeAttr = active ? ` aria-selected="true"` : "";
   if (r.kind === "page") {
-    return `<div class="${activeCls}"${idAttr}${activeAttr} data-href="${r.href}" role="option">
+    return `<div class="${activeCls}"${idAttr}${activeAttr} data-href="${escapeHtml(r.href)}" role="option">
       ${makeIcon(r.icon, r.color)}
-      <span class="cmdp-label">${r.label}</span>
+      <span class="cmdp-label">${escapeHtml(r.label)}</span>
       <span class="cmdp-kind">page</span>
     </div>`;
   }
@@ -181,26 +182,26 @@ function renderRow(r, active, idx) {
     const c = r.client;
     const dot = c.online ? "background:#10b981" : "background:#475569";
     const os = osBadge(c.os || "");
-    return `<div class="${activeCls}"${idAttr}${activeAttr} data-client="${c.id}" role="option">
+    return `<div class="${activeCls}"${idAttr}${activeAttr} data-client="${escapeHtml(String(c.id))}" role="option">
       <i class="fa ${os.icon} cv-tone-${os.tone}" style="width:18px;text-align:center;"></i>
       <span class="cmdp-status-dot" style="${dot}"></span>
       ${flagFor(c.country)}
-      <span class="cmdp-label">${r.label}</span>
+      <span class="cmdp-label">${escapeHtml(clientLabel(c))}</span>
       <span class="cmdp-kind">${c.online ? "online" : "offline"}</span>
     </div>`;
   }
   if (r.kind === "action") {
-    return `<div class="${activeCls}"${idAttr}${activeAttr} data-action="${r.action.key}" role="option">
+    return `<div class="${activeCls}"${idAttr}${activeAttr} data-action="${escapeHtml(r.action.key)}" role="option">
       ${makeIcon(r.action.icon, r.action.color)}
-      <span class="cmdp-label">${r.action.label}</span>
+      <span class="cmdp-label">${escapeHtml(r.action.label)}</span>
       <span class="cmdp-kind">needs client</span>
     </div>`;
   }
   if (r.kind === "client-action") {
     const c = r.client;
-    return `<div class="${activeCls}"${idAttr}${activeAttr} data-href="${r.action.href(c.id)}" role="option">
+    return `<div class="${activeCls}"${idAttr}${activeAttr} data-href="${escapeHtml(r.action.href(c.id))}" role="option">
       ${makeIcon(r.action.icon, r.action.color)}
-      <span class="cmdp-label">${r.action.label} · ${clientLabel(c)}</span>
+      <span class="cmdp-label">${escapeHtml(r.action.label)} · ${escapeHtml(clientLabel(c))}</span>
       <span class="cmdp-kind">action</span>
     </div>`;
   }
