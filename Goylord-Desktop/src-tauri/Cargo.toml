@@ -1,6 +1,6 @@
 [package]
 name = "goylord-desktop"
-version = "1.0.2"
+version = "0.0.3"
 description = "Goylord Desktop Client"
 authors = ["K fucking Dot"]
 edition = "2021"

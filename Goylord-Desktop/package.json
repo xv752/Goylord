@@ -1,6 +1,6 @@
 {
   "name": "goylord-desktop",
-  "version": "1.0.2",
+  "version": "0.0.3",
   "description": "Goylord Desktop Client - Tauri fat client for the Goylord server",
   "author": "K fucking Dot",
   "private": true,
