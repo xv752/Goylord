@@ -8,6 +8,28 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 
 ### Commits
 
+#### fix(build): auto-detect server URL/port in agent builds
+
+**Severity:** Bugfix
+**Component:** Goylord-Server build pipeline
+
+| Sub-fix | Severity | File(s) | Description |
+|---------|----------|---------|-------------|
+| Auto-detect server URL | Bugfix | `server/routes/build-routes.ts` | When operator leaves server URL blank, build now auto-injects `wss://host:port` from server config instead of falling back to hardcoded `wss://127.0.0.1:5173` |
+| Force wss:// prefix | Bugfix | `server/routes/build-routes.ts` | Build UI strips protocol prefix but Go agent needs full URL. Now always prepends `wss://` if missing |
+| Auto-append port | Bugfix | `server/routes/build-routes.ts` | If URL is provided without a port (e.g. `192.168.1.1`), server's listen port is appended automatically |
+
+#### fix(client): shorten agent retry delays
+
+**Severity:** Improvement
+**Component:** Goylord-Client session management
+
+| Sub-fix | Severity | File(s) | Description |
+|---------|----------|---------|-------------|
+| Base backoff | Improvement | `cmd/agent/session.go` | Reduced from 10-30s to 5-15s for faster reconnection |
+| Enrollment retry (pending) | Improvement | `cmd/agent/session.go` | Reduced from 30s to 10s for faster approval polling |
+| Invalid signature retry | Improvement | `cmd/agent/session.go` | Reduced from 60s to 15s |
+
 #### feat(plugins): build plugin system with artifact replacement
 
 **Severity:** Feature
