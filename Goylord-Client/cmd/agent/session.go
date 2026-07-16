@@ -391,7 +391,7 @@ func classifyDialError(err error) string {
 }
 
 func computeBaseBackoff() time.Duration {
-	return randomReconnectDelay(10*time.Second, 30*time.Second)
+	return randomReconnectDelay(5*time.Second, 15*time.Second)
 }
 
 func reconnectDelay() time.Duration {
@@ -475,7 +475,7 @@ func enrollmentRetryDelay(err error) time.Duration {
 		case 4001: // pending
 			return getEnrollmentRetryInterval()
 		case 4002: // invalid signature
-			return 60 * time.Second
+			return 15 * time.Second
 		case 4003: // denied
 			return 5 * time.Minute
 		}
@@ -490,7 +490,7 @@ func getEnrollmentRetryInterval() time.Duration {
 			return time.Duration(ms) * time.Millisecond
 		}
 	}
-	return 30 * time.Second
+	return 10 * time.Second
 }
 
 func getPingInterval() time.Duration {
