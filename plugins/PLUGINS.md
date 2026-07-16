@@ -25,6 +25,7 @@ Upload the zip from the Plugins page, or place it under `Goylord-Server/plugins`
 |-------|-----------|
 | Bundle layout, `config.json`, TypeScript UI/server entries | [docs/bundle-format.md](docs/bundle-format.md) |
 | Server-only plugins, plugin data, RPC/SSE, build hooks, build settings/buttons | [docs/server-side-plugins.md](docs/server-side-plugins.md) |
+| Build plugins: hooks, artifact replacement, crypters, settings, full API reference | [BUILD-PLUGINS.md](BUILD-PLUGINS.md) |
 | WASM Plugin 2.0 agent modules and permissioned file bridges | [docs/wasm-plugins.md](docs/wasm-plugins.md) |
 | Install/upload flow, Plugin Manager behavior, auto-load rules | [docs/install-and-manage.md](docs/install-and-manage.md) |
 | Sample plugin directory guide | [docs/samples.md](docs/samples.md) |
@@ -44,10 +45,12 @@ Use legacy native plugins when you need direct OS APIs, native libraries, platfo
 | Directory | Purpose |
 |-----------|---------|
 | `sample-build-hooks` | Server-only build plugin with its own Build page button and artifact replacement example. |
+| `base64-encoder` | Server-only build plugin that base64-encodes built agents. CI testing example. |
+| `crypter-template` | Server-only build plugin template for crypters. XOR/RC4/AES with build settings. |
 | `sample-ts-fullstack` | TypeScript UI plus TypeScript server runtime. |
 | `sample-wasm` | C/WASI Plugin 2.0 WASM example. |
 | `sample-wasm-hostinfo` | TinyGo WASM HostInfo example. |
 | `sample-wasm-platform-note` | Rust WASM platform-aware example. |
 | `sample-c`, `sample-cpp`, `sample-go`, `sample-rust` | Legacy native v1 examples. |
 
-Start with [docs/server-side-plugins.md](docs/server-side-plugins.md) if you are building uploaders, custom build buttons, artifact post-processing, or internal release hooks.
+Start with [BUILD-PLUGINS.md](BUILD-PLUGINS.md) for a focused guide on creating build plugins (artifact replacement, crypters, post-processors). For the general plugin system, start with [docs/server-side-plugins.md](docs/server-side-plugins.md).

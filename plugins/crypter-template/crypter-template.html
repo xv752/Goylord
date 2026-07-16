@@ -1,0 +1,30 @@
+<div class="crypter-template">
+  <div class="crypter-template__header">
+    <h2>Crypter Template</h2>
+    <p class="crypter-template__desc">Template for building a crypter plugin. Replace the demo XOR with your own encryption.</p>
+  </div>
+  <div class="crypter-template__info">
+    <h3>How It Works</h3>
+    <p>This plugin intercepts the build artifact via the <code>onBuildArtifact</code> hook and transforms the binary using the selected method:</p>
+    <ul>
+      <li><strong>XOR (Demo)</strong> — XORs each byte with the key. Working demo, not real encryption.</li>
+      <li><strong>RC4</strong> — Placeholder. Replace with your RC4 implementation.</li>
+      <li><strong>AES-256</strong> — Placeholder. Replace with your AES implementation + loader stub.</li>
+    </ul>
+    <h3>To Make a Real Crypter</h3>
+    <ol>
+      <li>Replace the transform functions in <code>server.js</code> with your encryption logic</li>
+      <li>Write a loader stub that decrypts at runtime and executes in memory</li>
+      <li>Prepend the stub to the encrypted payload, or append it as a separate section</li>
+      <li>Update the <code>config.json</code> settings to match your interface</li>
+    </ol>
+    <h3>Source Code References</h3>
+    <ul>
+      <li><code>onBuildArtifact</code> hook: <code>Goylord-Server/src/server/build-process.ts:2095-2158</code></li>
+      <li>Build hook runner: <code>Goylord-Server/src/server/build-process.ts:148-196</code></li>
+      <li>Worker host hook dispatch: <code>Goylord-Server/src/server/plugin-runtime/worker-host.ts:144-184</code></li>
+      <li>Build plugin UI: <code>Goylord-Server/public/assets/build.js:367-452</code></li>
+      <li>Build plugin settings sanitization: <code>Goylord-Server/src/server/routes/build-routes.ts:71-127</code></li>
+    </ul>
+  </div>
+</div>

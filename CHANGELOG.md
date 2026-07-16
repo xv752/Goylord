@@ -4,6 +4,28 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 
 ---
 
+## [0.0.3] - 2026-07-16
+
+### Commits
+
+#### feat(plugins): build plugin system with artifact replacement
+
+**Severity:** Feature
+**Component:** Goylord-Server build pipeline + Plugin system
+
+| Sub-feature | Severity | File(s) | Description |
+|-------------|----------|---------|-------------|
+| Build plugin pipeline | Feature | `server/build-process.ts`, `server/routes/build-routes.ts`, `server/plugin-runtime/runtime.ts`, `server/plugin-runtime/worker-host.ts` | Full build plugin integration: `GET /api/build/plugins` endpoint serves plugins with `build` config and `hasServer: true`. Artifact hook dispatches to all running plugin Workers after binary transformation. Plugin can return replacement filename — server swaps `finalOutputName` before download, upload, and push-to-all. |
+| Plugin UI in build page | Feature | `public/build.html`, `public/assets/build.js` | "Build Plugins" accordion section with per-plugin cards: name, description, enable toggle, settings form (select/string/number/boolean/textarea), action buttons with `setSettings`/`setBuild`. Section hidden when no plugins available. Settings persisted to localStorage. |
+| Setting validation | Feature | `server/routes/build-routes.ts` | `sanitizeBuildPlugins()` validates plugin settings against manifest: type checking, select option whitelist, min/max bounds, required field enforcement. Rejects build when required settings are empty. |
+| base64-encoder plugin | Feature | `plugins/base64-encoder/` | CI testing plugin: base64-encodes the built agent binary into a `.b64` file. No settings required. Validates output is valid base64. |
+| crypter-template plugin | Feature | `plugins/crypter-template/` | Crypter template: XOR/RC4/AES transforms with configurable key and output extension. Includes `requires` (disable UPX first), action buttons (`Quick XOR`), and platform filtering. |
+| Build plugins documentation | Feature | `plugins/BUILD-PLUGINS.md` | 900+ line developer guide: quick start, pipeline flow, config.json schema, all 20+ hooks with payload shapes, artifact replacement pattern, settings/actions API, platform filtering, 3 complete examples, source code references. |
+| Settings type fix | Bugfix | `plugins/crypter-template/config.json` | Fixed `"type": "text"` → `"type": "string"` (x2). Server normalizer only accepts `["string", "number", "boolean", "select", "textarea"]` — `"text"` was silently dropped. |
+| Documentation updates | Docs | `plugins/PLUGINS.md`, `plugins/docs/README.md`, `plugins/docs/samples.md` | Added BUILD-PLUGINS.md to docs index; added base64-encoder and crypter-template to samples table; updated "Start with" recommendation. |
+
+---
+
 ## [0.0.2] - 2026-07-15
 
 ### Commits
@@ -129,7 +151,8 @@ Ported from upstream commits by kdot (c577d8b, 22b0eed).
 | Medium | 13 |
 | Low | 5 |
 | Info | 1 |
-| **Total** | **33** |
+| Feature | 8 |
+| **Total** | **41** |
 
 | Component | Fixes |
 |-----------|-------|
@@ -140,8 +163,10 @@ Ported from upstream commits by kdot (c577d8b, 22b0eed).
 | Tauri Desktop | 2 |
 | Backstage (C/Win32) | 3 |
 | Build System | 2 |
+| Build Plugins | 8 |
 
 ## Test Results
 
 - **Server:** 479 pass, 5 fail (pre-existing `client-order.test.ts` failures, no regressions)
 - **Go Client:** `go build ./cmd/agent/` — builds clean, no race conditions detected
+- **Build Plugins:** 65 integration checks passed (extraction, manifests, API filter, validation, Worker runtime, artifact hooks, asset files, build/upload/upload-all paths)

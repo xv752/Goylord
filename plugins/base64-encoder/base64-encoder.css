@@ -1,0 +1,50 @@
+.base64-encoder {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.base64-encoder__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.base64-encoder__header h2 {
+  color: #e5e7eb;
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.base64-encoder__desc {
+  color: #94a3b8;
+  font-size: 13px;
+  margin: 0;
+}
+
+.base64-encoder__info {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid #334155;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+  padding: 16px;
+}
+
+.base64-encoder__info p {
+  margin: 0 0 8px 0;
+}
+
+.base64-encoder__info p:last-child {
+  margin-bottom: 0;
+}
+
+.base64-encoder__info code {
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 4px;
+  color: #a5b4fc;
+  font-size: 12px;
+  padding: 1px 5px;
+}
