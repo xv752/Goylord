@@ -169,31 +169,15 @@ docker compose down && docker compose pull && docker compose up -d
    ```
    Pre-existing Bun/Node type mismatches are OK — no new errors
 
-3. **Update Changes.md** — add a timestamped entry at the end of the file:
-   ```markdown
-   ### Short Title
-
-   **Timestamp:** YYYY-MM-DD HH:MM
-
-   **Bug:** (if applicable) Description of the bug
-
-   **Root cause:** Why it happened
-
-   **Fix:**
-   - File changes with details
-
-   **Verification:** 479 pass, 5 fail (pre-existing, no regressions)
-   ```
-
-4. **Update CHANGELOG.md** — add a structured entry per the format in GITHUB.md (severity table, component, sub-fixes)
-
-5. **Update docs/** — before ANY commit, ensure the `docs/` directory reflects the latest state:
+3. **Update docs/** — before ANY commit, ensure the `docs/` directory reflects the latest state:
    - Server code → update `docs/GOYLORD_SERVER.md`
    - Client code → update `docs/GOYLORD_CLIENT.md`
    - Desktop code → update `docs/GOYLORD_DESKTOP.md`
    - Plugins → update `docs/PLUGIN_SYSTEM.md` and `plugins/` docs
    - New features → create or update the relevant doc in `docs/`
    - Build system → update `docs/BUILD_DEPLOYMENT.md`
+
+> **Tip:** If you're working with AI assistants (Cursor, Copilot, etc.), keep a local `Changes.md` file tracking your changes with timestamps. It helps the AI understand what was done and why. Don't commit it to the repo.
 
 ### Code Conventions
 
