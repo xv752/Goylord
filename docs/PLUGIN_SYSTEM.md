@@ -9,6 +9,9 @@ Extensible plugin system supporting multiple runtimes: server-side (Bun), WASM (
 ```
 plugins/
 ├── PLUGINS.md                       # Plugin authoring entry point
+├── BUILD-PLUGINS.md                 # Build plugin developer guide (hooks, artifact replacement)
+├── base64-encoder/                  # Build plugin: CI testing (base64 encode output)
+├── crypter-template/                # Build plugin: Crypter template (XOR/RC4/AES)
 ├── docs/
 │   ├── bundle-format.md             # Plugin bundle format specification
 │   ├── server-side.md               # Server-side plugin development
@@ -34,7 +37,14 @@ plugins/
 
 ## Plugin Types
 
-### 1. Server-Side Plugins (Plugin 2.0)
+### 1. Build Plugins (New)
+- Hook into the agent build pipeline
+- Transform output binaries (crypters, encoders, post-processors)
+- Configurable settings in the Build Plugins UI section
+- Full developer guide: [BUILD_PLUGIN_DEVELOPMENT.md](BUILD_PLUGIN_DEVELOPMENT.md)
+- Source docs: `plugins/BUILD-PLUGINS.md`
+
+### 2. Server-Side Plugins (Plugin 2.0)
 - Run in Bun worker threads on the server
 - Can add custom UI pages, buttons, routes
 - Have access to server APIs (client management, builds, etc.)
