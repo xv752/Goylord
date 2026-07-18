@@ -242,10 +242,34 @@ export async function handleBuildRoutes(
 
       const safeRawServerList = !!rawServerList;
       const safeSolMemo = !!solMemo;
-      const safeServerUrl =
+      let safeServerUrl =
         typeof serverUrl === "string" && serverUrl.trim() !== ""
           ? serverUrl.trim()
           : undefined;
+
+      if (!safeRawServerList && !safeSolMemo) {
+        const cfg = getConfig();
+        const serverPort = cfg.server.port || 5173;
+        const serverHost = cfg.server.host === "0.0.0.0" ? "127.0.0.1" : cfg.server.host;
+
+        if (!safeServerUrl) {
+          safeServerUrl = `wss://${serverHost}:${serverPort}`;
+          logger.info(`[build] No server URL provided, auto-detected: ${safeServerUrl}`);
+        } else {
+          if (!/^wss?:\/\//i.test(safeServerUrl)) {
+            safeServerUrl = `wss://${safeServerUrl}`;
+          }
+          try {
+            const parsed = new URL(safeServerUrl);
+            if (!parsed.port || parsed.port === "") {
+              parsed.port = String(serverPort);
+              safeServerUrl = parsed.toString();
+            }
+          } catch {
+            safeServerUrl = `wss://${safeServerUrl.replace(/^wss?:\/\//i, "")}:${serverPort}`;
+          }
+        }
+      }
 
       if (safeRawServerList && safeSolMemo) {
         return Response.json(

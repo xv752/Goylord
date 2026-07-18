@@ -301,6 +301,7 @@ func sendCompletedFrame(ctx context.Context, env *rt.Env, frame wire.Frame, disp
 	statSendNs.Add(sendDur.Nanoseconds())
 	statTotalNs.Add(time.Since(t0).Nanoseconds())
 	statBytes.Add(int64(len(frame.Data)))
+	emitDesktopStreamStats(ctx, env, frame, fps, captureDur, encodeDur, sendDur, time.Since(t0), "ws")
 	return nil
 }
 

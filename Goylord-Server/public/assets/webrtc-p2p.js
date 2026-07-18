@@ -35,9 +35,11 @@ export class P2PClient {
   async start() {
     if (this.pc) await this.stop();
 
-    const pc = new RTCPeerConnection({
-      iceServers: this.iceServers.map((u) => ({ urls: u })),
-    });
+    const serverIce = await resolveIceServers();
+    const merged = serverIce.length > 0
+      ? serverIce.map((s) => ({ urls: s.urls, username: s.username, credential: s.credential }))
+      : this.iceServers.map((u) => ({ urls: u }));
+    const pc = new RTCPeerConnection({ iceServers: merged });
     this.pc = pc;
 
     if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
@@ -112,5 +114,16 @@ export class P2PClient {
     try { this.send({ type: "webrtc_p2p_stop" }); } catch {}
     if (this.videoEl) this.videoEl.srcObject = null;
     if (this.audioEl) this.audioEl.srcObject = null;
+  }
+}
+
+async function resolveIceServers() {
+  try {
+    const resp = await fetch("/api/webrtc/ice-config", { credentials: "include" });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return Array.isArray(data?.iceServers) ? data.iceServers : [];
+  } catch {
+    return [];
   }
 }

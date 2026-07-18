@@ -116,8 +116,24 @@ type FrameHeader struct {
 	Monitor int    `msgpack:"monitor"`
 	FPS     int    `msgpack:"fps"`
 	Format  string `msgpack:"format"`
+	Width   int    `msgpack:"width,omitempty"`
+	Height  int    `msgpack:"height,omitempty"`
 	Backstage    bool   `msgpack:"backstage,omitempty"`
 	Webcam  bool   `msgpack:"webcam,omitempty"`
+}
+
+type DesktopStreamStats struct {
+	Type      string  `msgpack:"type"`
+	FPS       int     `msgpack:"fps"`
+	Format    string  `msgpack:"format"`
+	Bytes     int     `msgpack:"bytes"`
+	Width     int     `msgpack:"width"`
+	Height    int     `msgpack:"height"`
+	CaptureMs float64 `msgpack:"captureMs"`
+	EncodeMs  float64 `msgpack:"encodeMs"`
+	SendMs    float64 `msgpack:"sendMs"`
+	TotalMs   float64 `msgpack:"totalMs"`
+	Transport string  `msgpack:"transport"`
 }
 
 type Frame struct {

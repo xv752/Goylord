@@ -1080,7 +1080,7 @@ export function createRenderer({
     const metaParts = [
       showField("system") ? `<span class="cv-os cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span>` : "",
       showField("system") ? `<span class="cv-arch cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span>` : "",
-      showField("version") ? `<span class="cv-ver"><i class="fa ${ver.icon}"></i> ${escapeHtml(ver.label)}</span>` : "",
+      showField("version") ? `<span class="cv-ver ${verLatest ? "" : "cv-outdated"}"><i class="fa ${ver.icon}"></i> ${escapeHtml(ver.label)}</span>` : "",
       showField("monitors") ? `<span class="cv-mons"><i class="fa fa-display"></i> ${client.monitors || 1}</span>` : "",
       nickname && client.host && nickname !== client.host ? `<span class="cv-host"><i class="fa-solid fa-laptop"></i> ${escapeHtml(client.host)}</span>` : "",
       showField("ip") && client.ip ? `<span class="cv-ip cv-mono"><i class="fa-solid fa-network-wired"></i> ${escapeHtml(client.ip)}</span>` : "",
@@ -1141,7 +1141,7 @@ export function createRenderer({
           ${batteryIndicator ? `<div class="cv-field"><span class="cv-field-label">Battery</span><span class="cv-field-value">${batteryIndicator}</span></div>` : ""}
           ${macPermissionDetailHtml(client)}
           ${showHardware && client.gpu ? `<div class="cv-field cv-field-wide"><span class="cv-field-label">GPU</span><span class="cv-field-value">${escapeHtml(client.gpu)}</span></div>` : ""}
-          ${showField("version") && !verLatest && client.version ? `<div class="cv-field"><span class="cv-field-label">Version</span><span class="cv-field-value cv-warn">v${escapeHtml(client.version)} (outdated)</span></div>` : ""}
+          ${showField("version") && !verLatest && client.version ? `<div class="cv-field"><span class="cv-field-label">Version</span><span class="cv-field-value cv-outdated">v${escapeHtml(client.version)} (outdated)</span></div>` : ""}
         </div>
       </div>
     `;
@@ -1247,7 +1247,7 @@ export function createRenderer({
       showField("system") ? `<span class="cv-card-meta-bit cv-tone-${os.tone}"><i class="fa ${os.icon}"></i> ${escapeHtml(shortOsLabel(client.os))}</span>` : "",
       showField("system") ? `<span class="cv-card-meta-bit cv-tone-${arch.tone}">${escapeHtml(arch.label)}</span>` : "",
       showField("monitors") ? `<span class="cv-card-meta-bit"><i class="fa fa-display"></i> ${client.monitors || 1}</span>` : "",
-      showField("version") && client.version ? `<span class="cv-card-meta-bit ${verLatest ? "" : "cv-warn"}"><i class="fa fa-tag"></i> v${escapeHtml(client.version)}</span>` : "",
+      showField("version") && client.version ? `<span class="cv-card-meta-bit ${verLatest ? "" : "cv-outdated"}"><i class="fa fa-tag"></i> v${escapeHtml(client.version)}</span>` : "",
     ].filter(Boolean).join("");
 
     const elevationBadges = [

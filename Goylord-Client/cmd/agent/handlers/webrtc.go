@@ -68,6 +68,7 @@ func handleWebrtcPublish(ctx context.Context, env *runtime.Env, cmdID string, pa
 		TLSCAPath:             env.Cfg.TLSCAPath,
 		HasVideo:              hasVideo,
 		HasAudio:              hasAudio,
+		ICEServers:            parseICEServers(payload),
 	}
 
 	goSafe("webrtc publish", env.Cancel, func() {
@@ -136,7 +137,7 @@ func handleWebrtcP2POffer(ctx context.Context, env *runtime.Env, cmdID string, p
 		},
 	}
 
-	answerSDP, err := webrtcpub.StartP2POffer(ctx, kind, sessionID, offerSDP, callbacks, hasVideo, hasAudio)
+	answerSDP, err := webrtcpub.StartP2POffer(ctx, kind, sessionID, offerSDP, callbacks, hasVideo, hasAudio, parseICEServers(payload))
 	if err != nil {
 		sendCommandResultSafe(env, cmdID, false, err.Error())
 		return nil
@@ -186,6 +187,39 @@ func handleWebrtcP2PStop(_ context.Context, env *runtime.Env, cmdID string, payl
 	}
 	sendCommandResultSafe(env, cmdID, true, "")
 	return nil
+}
+
+func parseICEServers(payload map[string]interface{}) []webrtcpub.ICEServer {
+	raw, ok := payload["iceServers"]
+	if !ok || raw == nil {
+		return nil
+	}
+	list, ok := raw.([]interface{})
+	if !ok || len(list) == 0 {
+		return nil
+	}
+	var out []webrtcpub.ICEServer
+	for _, item := range list {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		var srv webrtcpub.ICEServer
+		if urls, ok := m["urls"].([]interface{}); ok {
+			for _, u := range urls {
+				if s, ok := u.(string); ok && s != "" {
+					srv.URLs = append(srv.URLs, s)
+				}
+			}
+		}
+		if len(srv.URLs) == 0 {
+			continue
+		}
+		srv.Username, _ = m["username"].(string)
+		srv.Credential, _ = m["credential"].(string)
+		out = append(out, srv)
+	}
+	return out
 }
 
 func buildWhipURL(env *runtime.Env, whipPath string) (string, error) {

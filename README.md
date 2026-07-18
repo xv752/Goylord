@@ -4,7 +4,7 @@ Fork (unofficial) of vxaboveground/Overlord.
 
 Remote access and fleet management platform. TypeScript server on Bun, Go agent, Tauri desktop app. Operators manage targets through a web panel; agents connect over encrypted WebSockets.
 
-**Version:** 0.0.3
+**Version:** 0.0.5
 
 ---
 

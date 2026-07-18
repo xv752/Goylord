@@ -8,6 +8,7 @@ export type MessageKind =
   | "command"
   | "command_result"
   | "desktop_encoder_capabilities"
+  | "desktop_stream_stats"
   | "client_logs_result"
   | "screenshot_result"
   | "frame"
@@ -131,6 +132,7 @@ export type CommandType =
   | "desktop_enable_mouse"
   | "desktop_enable_keyboard"
   | "desktop_set_fps"
+  | "desktop_set_bitrate"
   | "darwin_request_permissions"
   | "webrtc_publish"
   | "webrtc_stop"
@@ -194,14 +196,53 @@ export type ScreenshotResult = {
 export type FrameHeader = {
   monitor: number;
   fps: number;
-  format: "jpeg" | "webp" | "raw" | "h264";
+  format: "jpeg" | "webp" | "raw" | "h264" | "hevc";
+  width?: number;
+  height?: number;
   hash?: string;
   backstage?: boolean;
   webcam?: boolean;
 };
 
+export type DesktopCodecCapability = {
+  codec: "hevc" | "h264" | "jpeg" | "raw" | string;
+  encoders?: string[];
+  transports: Array<"websocket" | "webrtc" | string>;
+  hardware?: boolean;
+};
+
+export type DesktopEncoderCapabilities = {
+  type: "desktop_encoder_capabilities";
+  commandId?: string;
+  probed: boolean;
+  display: number;
+  profiles: Array<{
+    maxHeight: number;
+    width: number;
+    height: number;
+    fps: number;
+    label: string;
+    providers: string[];
+  }>;
+  codecs: DesktopCodecCapability[];
+  detail?: string;
+};
+
 export type Frame = { type: "frame"; header: FrameHeader; data: Uint8Array };
 export type FrameAck = { type: "frame_ack" };
+export type DesktopStreamStats = {
+  type: "desktop_stream_stats";
+  fps: number;
+  format: string;
+  bytes: number;
+  width: number;
+  height: number;
+  captureMs: number;
+  encodeMs: number;
+  sendMs: number;
+  totalMs: number;
+  transport: "websocket" | "webrtc" | string;
+};
 export type Status = {
   type: "status";
   state: "idle" | "streaming" | "error";
@@ -511,6 +552,7 @@ export type WireMessage =
   | ScreenshotResult
   | Frame
   | FrameAck
+  | DesktopStreamStats
   | Status
   | ConsoleOutput
   | FileListResult

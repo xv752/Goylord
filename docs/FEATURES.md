@@ -1,6 +1,6 @@
 # Features Overview
 
-**Version:** 2.5.3
+**Version:** 0.0.5
 
 ## Remote Desktop
 
@@ -12,6 +12,12 @@
 - Clipboard sync (bidirectional)
 - Three transport modes: Canvas, WebRTC P2P, WebRTC Relayed
 - Remote desktop recording
+- Diagnostics HUD with real-time stream stats
+- Dynamic H264 bitrate control (manual and auto-bitrate with CRF modes)
+- Network statistics display (packets sent/received, bytes, latency)
+- WebRTC connection quality sampling (WebRTCStatsSampler)
+- HEVC (H.265) codec support with browser decoder probing — negotiates optimal codec based on browser capabilities
+- Desktop codec negotiation for Tauri desktop app (auto-selects best available codec)
 
 ## HVNC (Hidden VNC / Backstage Mode)
 
@@ -85,6 +91,9 @@
 - WHIP/WHEP relay via MediaMTX
 - Three transport modes (Canvas/P2P/Relayed)
 - ICE/SDP signaling relay
+- TURN/Coturn ICE relay support (HMAC-SHA1 short-lived credentials)
+- Opus 48kHz stereo audio encoding (with PCMU fallback)
+- WebRTCStatsSampler for connection quality metrics
 
 ## Chat System
 
@@ -144,6 +153,8 @@
 - Active window detection
 - SOCKS5 proxy (tunnel traffic through agent)
 - Hardware filtering support (CPU, GPU, RAM metadata)
+- H264 dynamic bitrate management (auto-bitrate, manual bitrate, CRF modes)
+- Stream stats reporting (frame rate, bitrate, resolution every 500ms)
 
 ## Notifications
 
@@ -184,6 +195,12 @@
 - `pagehide` event for cleaning up page resources
 - Module scripts re-execute with fresh instances
 
+## Live Viewer Revalidation
+
+- WebSocket-based viewer session revalidation
+- Per-viewer authorization checks on reconnect (`viewer-authorization.ts`)
+- Codec capability probing for viewer connections
+
 ## Customization
 
 - Custom login branding (logo, text, colors)
@@ -191,6 +208,7 @@
 - Configurable via environment variables
 - Import/export settings
 - Sticky settings (build, remote desktop, etc.)
+- Simple theme builder (colors, layout customization in settings)
 
 ## Deployment
 

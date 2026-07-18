@@ -50,6 +50,7 @@ type ActiveRecording = Omit<RdRecordingSummary, "files"> & {
   stderr: string;
   writeBlocked: boolean;
   finalized: boolean;
+  maxDurationTimer?: ReturnType<typeof setTimeout>;
 };
 
 type StartOptions = {
@@ -111,6 +112,14 @@ function h264InputFps(raw?: number): number {
 
 function segmentSeconds(): number {
   return envNumber("GOYLORD_RD_RECORD_SEGMENT_SECONDS", 600, 30, 3600);
+}
+
+function maxRecordDurationSeconds(): number {
+  return envNumber("GOYLORD_RD_RECORD_MAX_DURATION_S", 14400, 60, 86400);
+}
+
+function maxConcurrentRecordings(): number {
+  return envNumber("GOYLORD_RD_RECORD_MAX_CONCURRENT", 4, 1, 32);
 }
 
 function videoBitrate(): string {
@@ -233,6 +242,7 @@ function broadcastStatus(clientId: string): void {
 function finalizeRecording(recording: ActiveRecording, status: RdRecordingStatus, error?: string): void {
   if (recording.finalized) return;
   recording.finalized = true;
+  if (recording.maxDurationTimer) { clearTimeout(recording.maxDurationTimer); recording.maxDurationTimer = undefined; }
   if (status === "stopped" && recording.framesWritten === 0) {
     status = "failed";
     error = error || "No compatible video frames were received while recording.";
@@ -249,6 +259,10 @@ function finalizeRecording(recording: ActiveRecording, status: RdRecordingStatus
 export function startRemoteDesktopRecording(options: StartOptions): RdRecordingSummary {
   const existing = activeRecordings.get(options.clientId);
   if (existing) return toSummary(existing);
+
+  if (activeRecordings.size >= maxConcurrentRecordings()) {
+    throw new Error(`Maximum concurrent recordings (${maxConcurrentRecordings()}) reached.`);
+  }
 
   const id = crypto.randomUUID();
   const dir = path.join(clientRecordingDir(options.clientId), id);
@@ -390,6 +404,17 @@ export function startRemoteDesktopRecording(options: StartOptions): RdRecordingS
     logger.debug(`[rd-recording] ffmpeg exit client=${recording.clientId} id=${recording.id} code=${code ?? "null"} signal=${signal || ""} frames=${recording.framesWritten} skipped=${recording.framesSkipped} dropped=${recording.framesDropped}${recording.stderr ? ` stderr=${recording.stderr.slice(-500)}` : ""}`);
     finalizeRecording(recording, ok ? "stopped" : "failed", err);
   });
+
+  const maxDurMs = maxRecordDurationSeconds() * 1000;
+  recording.maxDurationTimer = setTimeout(() => {
+    if (!recording.finalized) {
+      logger.warn(`[rd-recording] max duration reached client=${recording.clientId} id=${recording.id} max=${maxRecordDurationSeconds()}s`);
+      stopRemoteDesktopRecording(recording.clientId, "max_duration_reached");
+    }
+  }, maxDurMs);
+  if (typeof (recording.maxDurationTimer as any).unref === "function") {
+    (recording.maxDurationTimer as any).unref();
+  }
 
   const outputCodec = encodingMode === "copy" ? "copy" : "libx264";
   const outputRate = encodingMode === "copy" ? "source" : compact ? `crf${compactCrf()}` : videoBitrate();

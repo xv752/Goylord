@@ -2,7 +2,7 @@
 
 Windows DLL for **HVNC (Hidden VNC)** functionality. Hooks NT API functions to redirect file system paths at the kernel level, enabling hidden desktop operations.
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Directory Layout
 

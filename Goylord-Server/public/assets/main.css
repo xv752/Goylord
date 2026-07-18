@@ -2981,6 +2981,7 @@ tbody tr:hover {
 .cv-mono { font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace; }
 .cv-tab-num { font-variant-numeric: tabular-nums; }
 .cv-warn { color: var(--cv-warn) !important; }
+.cv-outdated { color: var(--color-danger) !important; }
 
 .cv-dot {
   display: inline-block;

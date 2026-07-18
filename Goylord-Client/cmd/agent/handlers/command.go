@@ -912,6 +912,19 @@ func HandleCommand(ctx context.Context, env *runtime.Env, envelope map[string]in
 		log.Printf("desktop: set target fps=%d", fps)
 		sendCommandResultSafe(env, cmdID, true, "")
 		return nil
+	case "desktop_set_bitrate":
+		payload, _ := envelope["payload"].(map[string]interface{})
+		bitrateMbps := 0
+		if payload != nil {
+			if v, ok := payloadInt(payload, "bitrateMbps"); ok {
+				bitrateMbps = v
+			}
+		}
+		bps := bitrateMbps * 1_000_000
+		actual := capture.SetH264TargetBitrate(bps)
+		log.Printf("desktop: set target bitrate=%dMbps (actual=%dbps)", bitrateMbps, actual)
+		sendCommandResultSafe(env, cmdID, true, "")
+		return nil
 	case "clipboard_sync_start":
 		payload, _ := envelope["payload"].(map[string]interface{})
 		source := "rd"

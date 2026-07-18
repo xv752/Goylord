@@ -97,6 +97,7 @@ func runClient(cfg config.Config) {
 			}
 			rotateToNextServer(&currentIndex, cfg.ServerURLs)
 
+			backoff = increaseBackoff(backoff)
 			time.Sleep(backoff)
 			cancel()
 			continue
@@ -144,6 +145,7 @@ func runClient(cfg config.Config) {
 				tryRefreshServerList(&cfg, &lastSolRefresh, &currentIndex, &consecutiveFailures)
 			}
 			rotateToNextServer(&currentIndex, cfg.ServerURLs)
+			backoff = increaseBackoff(backoff)
 		}
 
 		sleepFor := backoff
@@ -391,7 +393,19 @@ func classifyDialError(err error) string {
 }
 
 func computeBaseBackoff() time.Duration {
-	return randomReconnectDelay(10*time.Second, 30*time.Second)
+	return randomReconnectDelay(5*time.Second, 15*time.Second)
+}
+
+const maxReconnectBackoff = 5 * time.Minute
+
+func increaseBackoff(current time.Duration) time.Duration {
+	next := current * 2
+	jitter := randomReconnectDelay(0, 1*time.Second)
+	next += jitter
+	if next > maxReconnectBackoff {
+		next = maxReconnectBackoff
+	}
+	return next
 }
 
 func reconnectDelay() time.Duration {
@@ -475,7 +489,7 @@ func enrollmentRetryDelay(err error) time.Duration {
 		case 4001: // pending
 			return getEnrollmentRetryInterval()
 		case 4002: // invalid signature
-			return 60 * time.Second
+			return 15 * time.Second
 		case 4003: // denied
 			return 5 * time.Minute
 		}
@@ -490,7 +504,7 @@ func getEnrollmentRetryInterval() time.Duration {
 			return time.Duration(ms) * time.Millisecond
 		}
 	}
-	return 30 * time.Second
+	return 10 * time.Second
 }
 
 func getPingInterval() time.Duration {

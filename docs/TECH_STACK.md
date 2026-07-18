@@ -1,6 +1,6 @@
 # Tech Stack
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Languages & Runtimes
 
@@ -61,6 +61,7 @@
 | jezek/xgb | X11 (Linux) |
 | gen2brain/malgo | Audio (macOS) |
 | Kirizu-Official/windows-camera-go | Windows camera capture |
+| Opus (xmtp/go-codec) | Opus 48kHz stereo audio encoding for WebRTC streaming |
 
 ### Desktop (Goylord-Desktop)
 | Package | Purpose |

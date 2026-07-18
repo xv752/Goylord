@@ -29,7 +29,8 @@ export class WhepClient {
   async start() {
     if (this.pc) await this.stop();
 
-    const pc = new RTCPeerConnection({});
+    const iceServers = await resolveIceServers();
+    const pc = new RTCPeerConnection({ iceServers });
     this.pc = pc;
     if (this.videoEl) pc.addTransceiver("video", { direction: "recvonly" });
     if (this.audioEl) pc.addTransceiver("audio", { direction: "recvonly" });
@@ -120,4 +121,15 @@ function waitIceComplete(pc, timeoutMs) {
     pc.addEventListener("icegatheringstatechange", check);
     setTimeout(finish, timeoutMs);
   });
+}
+
+async function resolveIceServers() {
+  try {
+    const resp = await fetch("/api/webrtc/ice-config", { credentials: "include" });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return Array.isArray(data?.iceServers) ? data.iceServers : [];
+  } catch {
+    return [];
+  }
 }

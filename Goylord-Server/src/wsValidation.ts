@@ -50,6 +50,7 @@ export const ALLOWED_CLIENT_MESSAGE_TYPES = new Set([
   "disconnect_info",
   "webrtc_p2p_answer",
   "webrtc_p2p_ice",
+  "desktop_stream_stats",
 ]);
 
 export function isAllowedClientMessageType(type: string): boolean {

@@ -144,7 +144,17 @@ func Start(ctx context.Context, kind Kind, opts Options) (*Publisher, error) {
 	}
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-	pc, err := api.NewPeerConnection(webrtc.Configuration{})
+	iceCfg := webrtc.Configuration{}
+	if len(opts.ICEServers) > 0 {
+		for _, s := range opts.ICEServers {
+			iceCfg.ICEServers = append(iceCfg.ICEServers, webrtc.ICEServer{
+				URLs:       s.URLs,
+				Username:   s.Username,
+				Credential: s.Credential,
+			})
+		}
+	}
+	pc, err := api.NewPeerConnection(iceCfg)
 	if err != nil {
 		return nil, fmt.Errorf("new peer connection: %w", err)
 	}

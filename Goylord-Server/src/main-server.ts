@@ -93,6 +93,7 @@ import { createWebSocketRuntime } from "./server/websocket-runtime";
 import {
   handleConsoleOutput,
   handleDesktopEncoderCapabilities,
+  handleDesktopStreamStats,
   handleConsoleViewerMessage,
   handleConsoleViewerOpen,
   handlebackstageViewerMessage,
@@ -373,6 +374,9 @@ setInterval(() => {
   for (const [clientId, events] of pendingPluginEvents) {
     if (events.length > MAX_PENDING_PLUGIN_EVENTS_PER_CLIENT) {
       pendingPluginEvents.set(clientId, events.slice(-MAX_PENDING_PLUGIN_EVENTS_PER_CLIENT));
+    }
+    if (events.length === 0) {
+      pendingPluginEvents.delete(clientId);
     }
   }
   if (notificationRate.size > MAX_NOTIFICATION_RATE_ENTRIES) {
@@ -676,6 +680,7 @@ async function startServer() {
     handleNotificationScreenshotResult: notificationPluginHandlers.handleNotificationScreenshotResult,
     handleConsoleOutput: (clientId: string, payload: any) => handleConsoleOutput(clientId, payload),
     handleDesktopEncoderCapabilities: (clientId: string, payload: any) => handleDesktopEncoderCapabilities(clientId, payload),
+    handleDesktopStreamStats: (clientId: string, payload: any) => handleDesktopStreamStats(clientId, payload),
     handleFileBrowserMessage: (clientId: string, payload: any) =>
       forwardFileBrowserMessage(clientId, payload, {
         pendingHttpDownloads,
