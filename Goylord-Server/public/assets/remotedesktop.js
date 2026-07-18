@@ -4,6 +4,7 @@ import { WhepClient } from "./whep.js";
 import { P2PClient } from "./webrtc-p2p.js";
 import { createKeyboardCapture } from "./keyboard-capture.js";
 import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-settings.js";
+import { WebRTCStatsSampler } from "./webrtc-stats.js";
 
 (async function () {
   const clientId = new URLSearchParams(location.search).get("clientId");
@@ -78,6 +79,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const agentFps = document.getElementById("agentFps");
   const viewerFps = document.getElementById("viewerFps");
   const inputLatency = document.getElementById("inputLatency");
+  const networkStats = document.getElementById("networkStats");
+  const diagnosticsBtn = document.getElementById("diagnosticsBtn");
+  const diagnosticsHud = document.getElementById("diagnosticsHud");
+  const diagnosticsClose = document.getElementById("diagnosticsClose");
+  const diagnosticEls = Object.fromEntries([
+    "Summary", "Transport", "Codec", "Resolution", "Capture", "Encode", "Send", "AgentTotal",
+    "Bitrate", "Rtt", "LossJitter", "JitterBuffer", "Decode", "Render", "Queue", "Dropped", "Fps", "Input",
+  ].map((name) => [name, document.getElementById(`diag${name}`)]));
+  const bitrateSelect = document.getElementById("bitrateSelect");
   const statusEl = document.getElementById("streamStatus");
   const clipboardSyncCtrl = document.getElementById("clipboardSyncCtrl");
   const privacyCtrl = document.getElementById("privacyCtrl");
@@ -86,6 +96,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   const webrtcVideo = document.getElementById("webrtcVideo");
   let whepClient = null;
   let p2pClient = null;
+  let statsSampler = null;
   let webrtcActive = false;
   function getWebrtcMode() {
     return webrtcMode ? String(webrtcMode.value || "off") : "off";
@@ -117,6 +128,9 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let h264FirstFrameAt = 0;
   let h264FramesSeen = 0;
   let h264KeyframeErrorStreak = 0;
+  const disabledDecoderCodecs = new Set();
+  let negotiatedCodec = prefersH264 ? "h264" : "jpeg";
+  let browserDecoderCodecs = ["jpeg", "raw"];
   let h264RecoveryAttempts = 0;
   let h264LastDecodeWarnAt = 0;
   const H264_LOW_FPS_THRESHOLD = 6;
@@ -138,6 +152,22 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   let clientIsAdmin = false;
   let firewallWarningAcked = false;
   let firstFrameLogged = false;
+  const diagnostics = {
+    agent: null,
+    network: null,
+    decodeMs: null,
+    renderMs: null,
+    decodeQueue: 0,
+    coalescedFrames: 0,
+    currentAgentFps: null,
+    currentViewerFps: null,
+    wsBitrateMbps: null,
+    wsBytes: 0,
+    wsWindowStartedAt: performance.now(),
+    codec: "",
+    width: 0,
+    height: 0,
+  };
 
   function rdDebug(label, data = {}) {
     try {
@@ -468,13 +498,15 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function updateFpsDisplay(agentValue) {
     if (agentValue !== undefined && agentValue !== null && agentFps) {
-      agentFps.textContent = String(agentValue);
+      diagnostics.currentAgentFps = Number(agentValue) || null;
+      agentFps.textContent = String(Math.round(diagnostics.currentAgentFps));
     }
     const now = performance.now();
     renderCount += 1;
     const elapsed = now - renderWindowStart;
     if (elapsed >= 1000 && viewerFps) {
       const fps = Math.round((renderCount * 1000) / elapsed);
+      diagnostics.currentViewerFps = fps;
       viewerFps.textContent = String(fps);
       renderCount = 0;
       renderWindowStart = now;
@@ -827,6 +859,163 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     }
   }
 
+  function finite(value) {
+    return Number.isFinite(value) ? Number(value) : null;
+  }
+
+  function smoothed(previous, next, weight = 0.25) {
+    const value = finite(next);
+    if (value == null) return previous;
+    return previous == null ? value : previous * (1 - weight) + value * weight;
+  }
+
+  function msText(value) {
+    const number = finite(value);
+    return number == null ? "-- ms" : `${number < 10 ? number.toFixed(1) : Math.round(number)} ms`;
+  }
+
+  function setDiagnosticsVisible(visible) {
+    if (!diagnosticsHud) return;
+    diagnosticsHud.classList.toggle("hidden", !visible);
+    diagnosticsBtn?.setAttribute("aria-pressed", visible ? "true" : "false");
+    try { localStorage.setItem("goylord.rd.statsHud", visible ? "1" : "0"); } catch {}
+  }
+
+  function renderDiagnostics() {
+    if (!diagnosticsHud) return;
+    const agent = diagnostics.agent || {};
+    const network = diagnostics.network || {};
+    const media = network.video || network.audio || {};
+    const mode = getWebrtcMode();
+    const transport = mode === "p2p" ? "WebRTC P2P" : mode === "relayed" ? "WebRTC server" : "Canvas WebSocket";
+    const bitrate = finite(media.bitrateMbps) ?? finite(diagnostics.wsBitrateMbps);
+    const decodeMs = finite(media.decodeMs) ?? finite(diagnostics.decodeMs);
+    const renderMs = finite(media.processingDelayMs) ?? finite(diagnostics.renderMs);
+    const dropped = finite(media.framesDropped) ?? 0;
+    const queue = mode === "off" ? diagnostics.decodeQueue : null;
+    const fps = finite(agent.fps) ?? diagnostics.currentAgentFps;
+    const viewerRate = finite(media.framesPerSecond) ?? diagnostics.currentViewerFps;
+    const frameBudget = 1000 / Math.max(1, fps || viewerRate || 30);
+
+    let summary = "Pipeline healthy";
+    let severity = "ok";
+    if (streamState !== "streaming" && streamState !== "stalled") {
+      summary = "Stream is not active";
+      severity = "warn";
+    } else if (finite(agent.captureMs) > frameBudget * 0.75) {
+      summary = "Capture is limiting frame rate";
+      severity = "bad";
+    } else if (finite(agent.encodeMs) > frameBudget * 0.75) {
+      summary = "Encoder is limiting frame rate";
+      severity = "bad";
+    } else if (decodeMs != null && decodeMs > frameBudget * 0.75) {
+      const viewerKeepingUp = fps != null && viewerRate != null && viewerRate >= fps * 0.9;
+      summary = viewerKeepingUp
+        ? `Decoder buffering adds ${Math.round(decodeMs)} ms`
+        : "Viewer decoder throughput is limiting FPS";
+      severity = viewerKeepingUp ? "warn" : "bad";
+    } else if ((finite(media.lossPercent) ?? 0) > 3 || (finite(network.rttMs) ?? 0) > 150 || (finite(media.jitterMs) ?? 0) > 35) {
+      summary = "Network conditions are causing delay";
+      severity = "bad";
+    } else if ((queue ?? 0) > 2 || (renderMs != null && renderMs > frameBudget)) {
+      summary = "Viewer render queue is backing up";
+      severity = "warn";
+    } else if (!diagnostics.agent && !diagnostics.network) {
+      summary = "Waiting for stream telemetry";
+      severity = "warn";
+    }
+
+    diagnosticEls.Summary.textContent = summary;
+    diagnosticEls.Summary.dataset.severity = severity;
+    diagnosticEls.Transport.textContent = transport;
+    diagnosticEls.Codec.textContent = String(media.codec || agent.format || diagnostics.codec || "--").toUpperCase();
+    const width = finite(media.width) ?? diagnostics.width;
+    const height = finite(media.height) ?? diagnostics.height;
+    diagnosticEls.Resolution.textContent = width && height ? `${width}×${height}` : "--";
+    diagnosticEls.Capture.textContent = msText(agent.captureMs);
+    diagnosticEls.Encode.textContent = msText(agent.encodeMs);
+    diagnosticEls.Send.textContent = msText(agent.sendMs);
+    diagnosticEls.AgentTotal.textContent = msText(agent.totalMs);
+    diagnosticEls.Bitrate.textContent = bitrate == null ? "-- Mbps" : `${bitrate.toFixed(2)} Mbps`;
+    diagnosticEls.Rtt.textContent = msText(network.rttMs);
+    diagnosticEls.LossJitter.textContent = `${finite(media.lossPercent)?.toFixed(1) ?? "--"}% / ${msText(media.jitterMs)}`;
+    diagnosticEls.JitterBuffer.textContent = msText(media.jitterBufferMs);
+    diagnosticEls.Decode.textContent = msText(decodeMs);
+    diagnosticEls.Render.textContent = msText(renderMs);
+    diagnosticEls.Queue.textContent = queue == null ? "managed by browser" : String(queue);
+    diagnosticEls.Dropped.textContent = `${Math.round(dropped)} / ${diagnostics.coalescedFrames}`;
+    diagnosticEls.Fps.textContent = `${fps == null ? "--" : Math.round(fps)} → ${viewerRate == null ? "--" : Math.round(viewerRate)}`;
+    diagnosticEls.Input.textContent = msText(latencyAvg);
+  }
+
+  diagnosticsBtn?.addEventListener("click", () => setDiagnosticsVisible(diagnosticsHud?.classList.contains("hidden")));
+  diagnosticsClose?.addEventListener("click", () => setDiagnosticsVisible(false));
+  networkStats?.addEventListener("click", () => setDiagnosticsVisible(true));
+  try { setDiagnosticsVisible(localStorage.getItem("goylord.rd.statsHud") === "1"); } catch {}
+  setInterval(renderDiagnostics, 250);
+
+  function updateNetworkStats(stats) {
+    if (!networkStats || !stats) return;
+    diagnostics.network = stats;
+    const media = stats.video || stats.audio;
+    const parts = [];
+    if (Number.isFinite(media?.bitrateMbps)) parts.push(`${media.bitrateMbps.toFixed(1)} Mbps`);
+    if (Number.isFinite(stats.rttMs)) parts.push(`${Math.round(stats.rttMs)} ms`);
+    if (Number.isFinite(media?.lossPercent)) parts.push(`${media.lossPercent.toFixed(1)}% loss`);
+    const route = [stats.protocol, stats.route].filter(Boolean).join("/");
+    if (route) parts.push(route);
+    networkStats.textContent = parts.join(" · ") || "Connected";
+    const details = [];
+    if (media?.codec) details.push(`Codec: ${media.codec}`);
+    if (media?.width && media?.height) details.push(`Video: ${media.width}×${media.height}${media.framesPerSecond ? ` @ ${Math.round(media.framesPerSecond)} FPS` : ""}`);
+    if (Number.isFinite(media?.jitterMs)) details.push(`Jitter: ${media.jitterMs.toFixed(1)} ms`);
+    if (Number.isFinite(media?.jitterBufferMs)) details.push(`Jitter buffer: ${media.jitterBufferMs.toFixed(1)} ms`);
+    if (Number.isFinite(media?.framesDropped)) details.push(`Frames dropped: ${media.framesDropped}`);
+    if (Number.isFinite(stats.availableIncomingMbps)) details.push(`Available: ${stats.availableIncomingMbps.toFixed(1)} Mbps`);
+    networkStats.title = details.join("\n");
+    renderDiagnostics();
+  }
+
+  function recordWsFrameBytes(byteLength) {
+    diagnostics.wsBytes += Math.max(0, Number(byteLength) || 0);
+    const now = performance.now();
+    const elapsed = now - diagnostics.wsWindowStartedAt;
+    if (elapsed >= 1000) {
+      const rate = (diagnostics.wsBytes * 8) / (elapsed * 1000);
+      diagnostics.wsBitrateMbps = smoothed(diagnostics.wsBitrateMbps, rate, 0.4);
+      diagnostics.wsBytes = 0;
+      diagnostics.wsWindowStartedAt = now;
+    }
+  }
+
+  function recordCanvasFrameTiming(receivedAt, decodeStartedAt) {
+    const renderedAt = performance.now();
+    diagnostics.decodeMs = smoothed(diagnostics.decodeMs, Math.max(0, renderedAt - decodeStartedAt));
+    diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, renderedAt - receivedAt));
+    diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || (pendingFrame ? 1 : 0);
+    diagnostics.width = frameWidth || canvas.width || diagnostics.width;
+    diagnostics.height = frameHeight || canvas.height || diagnostics.height;
+  }
+
+  function handleDesktopStreamStats(stats) {
+    const previous = diagnostics.agent || {};
+    diagnostics.agent = {
+      ...stats,
+      captureMs: smoothed(finite(previous.captureMs), stats.captureMs),
+      encodeMs: smoothed(finite(previous.encodeMs), stats.encodeMs),
+      sendMs: smoothed(finite(previous.sendMs), stats.sendMs),
+      totalMs: smoothed(finite(previous.totalMs), stats.totalMs),
+    };
+    diagnostics.currentAgentFps = finite(stats.fps);
+    diagnostics.codec = String(stats.format || diagnostics.codec || "");
+    diagnostics.width = finite(stats.width) || diagnostics.width;
+    diagnostics.height = finite(stats.height) || diagnostics.height;
+    if (agentFps && diagnostics.currentAgentFps != null) {
+      agentFps.textContent = String(Math.round(diagnostics.currentAgentFps));
+    }
+    renderDiagnostics();
+  }
+
   function clearOfflineTimer() {
     if (offlineTimer) {
       clearTimeout(offlineTimer);
@@ -1061,6 +1250,11 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     webrtcActive = !!active;
     if (canvas) canvas.style.display = active ? "none" : "block";
     if (webrtcVideo) webrtcVideo.style.display = active ? "block" : "none";
+    if (!active && networkStats) {
+      networkStats.textContent = "--";
+      networkStats.title = "";
+      diagnostics.network = null;
+    }
   }
 
   function onWebrtcState(label, s) {
@@ -1084,14 +1278,21 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     stopWebrtcFrameTicker();
     webrtcFpsCount = 0;
     webrtcFpsWindowStart = performance.now();
-    const tick = (now) => {
+    const tick = (now, metadata = {}) => {
       markFrameReceived();
+      if (Number.isFinite(metadata.processingDuration)) {
+        diagnostics.decodeMs = smoothed(diagnostics.decodeMs, metadata.processingDuration * 1000);
+      }
+      if (Number.isFinite(metadata.receiveTime) && Number.isFinite(metadata.expectedDisplayTime)) {
+        diagnostics.renderMs = smoothed(diagnostics.renderMs, Math.max(0, metadata.expectedDisplayTime - metadata.receiveTime));
+      }
+      diagnostics.width = webrtcVideo.videoWidth || diagnostics.width;
+      diagnostics.height = webrtcVideo.videoHeight || diagnostics.height;
       webrtcFpsCount += 1;
       const elapsed = now - webrtcFpsWindowStart;
       if (elapsed >= 1000) {
         const fps = Math.round((webrtcFpsCount * 1000) / elapsed);
-        // Agent and viewer FPS are effectively equal in WebRTC mode — the
-        // browser renders every frame the agent sends, no decode skipping.
+        diagnostics.currentViewerFps = fps;
         updateFpsDisplay(fps);
         webrtcFpsCount = 0;
         webrtcFpsWindowStart = now;
@@ -1121,6 +1322,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       await whepClient.start();
       setWebrtcViewActive(true);
       startWebrtcFrameTicker();
+      if (whepClient.pc) {
+        statsSampler = new WebRTCStatsSampler(whepClient.pc, updateNetworkStats);
+        statsSampler.start();
+      }
     } catch (err) {
       console.warn("webrtc: WHEP start failed, falling back to canvas", err);
       setWebrtcViewActive(false);
@@ -1144,6 +1349,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       await p2pClient.start();
       setWebrtcViewActive(true);
       startWebrtcFrameTicker();
+      if (p2pClient.pc) {
+        statsSampler = new WebRTCStatsSampler(p2pClient.pc, updateNetworkStats);
+        statsSampler.start();
+      }
     } catch (err) {
       console.warn("webrtc: P2P start failed, falling back to canvas", err);
       setWebrtcViewActive(false);
@@ -1156,6 +1365,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   async function stopAllWebrtc() {
     stopWebrtcFrameTicker();
     setWebrtcViewActive(false);
+    if (statsSampler) { try { statsSampler.stop(); } catch {} statsSampler = null; }
     const w = whepClient;
     whepClient = null;
     if (w) { try { await w.stop(); } catch {} }
@@ -1238,7 +1448,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
 
   function pushQuality(val) {
     const q = Number(val) || 90;
-    const codec = q >= 100 ? "raw" : (prefersH264 ? "h264" : "jpeg");
+    const codec = q >= 100 ? "raw" : (negotiatedCodec || (prefersH264 ? "h264" : "jpeg"));
     const softwareH264 = codec === "h264" && useSoftwareH264();
     console.debug("rd: pushQuality val=", val, "q=", q, "codec=", codec, "softwareH264=", softwareH264);
     setCodecModeLabel(codec, "requested");
@@ -1264,6 +1474,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     codecH264.addEventListener("change", function () {
       resetH264SessionState();
       prefersH264 = !!codecH264.checked && typeof VideoDecoder === "function";
+      negotiatedCodec = prefersH264 ? "h264" : "jpeg";
       if (softwareH264Ctrl) {
         softwareH264Ctrl.disabled = !prefersH264;
       }
@@ -1277,6 +1488,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       if (qualitySlider) {
         pushQuality(qualitySlider.value);
       }
+      requestEncoderCapabilities();
       sharedSettingsSaver.scheduleSave();
     });
   }
@@ -1306,15 +1518,92 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     sendCmd("desktop_set_profile", profile);
   }
 
-  function requestEncoderCapabilities() {
+  function pushBitrate() {
+    const bitrateMbps = Math.max(0, Math.min(50, Number.parseInt(bitrateSelect?.value || "0", 10) || 0));
+    sendCmd("desktop_set_bitrate", { bitrateMbps });
+  }
+
+  if (bitrateSelect) {
+    bitrateSelect.addEventListener("change", function () {
+      pushBitrate();
+      sharedSettingsSaver?.scheduleSave();
+    });
+  }
+
+  async function probeBrowserDecoderCodecs(transport) {
+    const supported = ["jpeg", "raw"];
+    if (transport === "webrtc") {
+      try {
+        const codecs = typeof RTCRtpReceiver !== "undefined" && typeof RTCRtpReceiver.getCapabilities === "function"
+          ? (RTCRtpReceiver.getCapabilities("video")?.codecs || [])
+          : [];
+        for (const capability of codecs) {
+          const mime = String(capability?.mimeType || "").toLowerCase();
+          if (mime === "video/h264") supported.push("h264");
+          if (mime === "video/h265" || mime === "video/hevc") supported.push("hevc");
+        }
+      } catch (err) {
+        console.debug("rd: WebRTC codec capability probe failed", err);
+      }
+      return [...new Set(supported)];
+    }
+
+    if (typeof VideoDecoder !== "function") return supported;
+    if (typeof VideoDecoder.isConfigSupported !== "function") {
+      supported.push("h264");
+      return supported;
+    }
+    const probes = [
+      ["h264", "avc1.42E01E"],
+      ["hevc", "hev1.1.6.L156.B0"],
+    ];
+    await Promise.all(probes.map(async ([name, codec]) => {
+      try {
+        const result = await VideoDecoder.isConfigSupported({ codec, optimizeForLatency: true });
+        if (result?.supported) supported.push(name);
+      } catch (err) {
+        console.debug(`rd: ${name} decoder capability probe failed`, err);
+      }
+    }));
+    return [...new Set(supported)].filter((codec) => !disabledDecoderCodecs.has(codec));
+  }
+
+  async function requestEncoderCapabilities() {
     if (streamProfileDetail) streamProfileDetail.textContent = "Checking hardware encoder profiles…";
+    const mode = getWebrtcMode();
+    const transport = mode === "off" ? "websocket" : "webrtc";
+    const decoderCodecs = await probeBrowserDecoderCodecs(transport);
+    browserDecoderCodecs = decoderCodecs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
     sendCmd("desktop_encoder_capabilities", {
       display: Number.parseInt(displaySelect?.value || "0", 10) || 0,
+      decoderCodecs,
+      preferredCodecs: prefersH264 ? ["hevc", "h264", "jpeg", "raw"] : ["jpeg", "raw"],
+      transport,
     });
   }
 
   function applyEncoderCapabilities(msg) {
-    if (!msg || !Array.isArray(msg.profiles) || !streamProfileSelect) return;
+    if (!msg) return;
+    const selectedCodec = String(msg.selectedCodec || msg.negotiation?.selectedCodec || "").toLowerCase();
+    if (selectedCodec) {
+      negotiatedCodec = selectedCodec;
+      const fallbacks = Array.isArray(msg.fallbackCodecs) ? msg.fallbackCodecs.join(" → ") : selectedCodec;
+      setCodecModeLabel(selectedCodec, `negotiated; fallback ${fallbacks}`);
+      if (codecH264) {
+        const agentHasH264 = Array.isArray(msg.codecs) && msg.codecs.some((entry) => String(entry?.codec || "").toLowerCase() === "h264");
+        codecH264.disabled = !browserDecoderCodecs.includes("h264") || !agentHasH264;
+      }
+      if (desiredStreaming && qualitySlider) pushQuality(qualitySlider.value);
+    } else if (msg.transport === "webrtc") {
+      console.warn("rd: no mutually supported WebRTC video codec; falling back to WebSocket canvas");
+      if (webrtcMode) webrtcMode.value = "off";
+      negotiatedCodec = browserDecoderCodecs.includes("h264") ? "h264" : "jpeg";
+      setCodecModeLabel(negotiatedCodec, "WebRTC unavailable; WebSocket fallback");
+      stopAllWebrtc();
+      requestEncoderCapabilities();
+    }
+    if (!Array.isArray(msg.profiles) || !streamProfileSelect) return;
     const selectedDisplay = Number.parseInt(displaySelect?.value || "0", 10) || 0;
     if (Number.isFinite(Number(msg.display)) && Number(msg.display) !== selectedDisplay) return;
     const previous = streamProfileSelect.value;
@@ -1375,6 +1664,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
   if (webrtcMode) {
     webrtcMode.addEventListener("change", function () {
       updateControls();
+      requestEncoderCapabilities();
       sharedSettingsSaver.scheduleSave();
     });
   }
@@ -1678,6 +1968,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     if (!prefersH264) return;
     const reasonText = normalizeFallbackReason(reason);
     prefersH264 = false;
+    negotiatedCodec = "jpeg";
     destroyVideoDecoder();
     if (codecH264) codecH264.checked = false;
     if (softwareH264Ctrl) softwareH264Ctrl.disabled = true;
@@ -1769,7 +2060,53 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     return false;
   }
 
-  function ensureVideoDecoder() {
+  function isHEVCKeyFrame(data) {
+    for (let i = 0; i + 5 < data.length; i++) {
+      let startCodeLen = 0;
+      if (data[i] === 0x00 && data[i + 1] === 0x00 && data[i + 2] === 0x01) {
+        startCodeLen = 3;
+      } else if (
+        data[i] === 0x00 && data[i + 1] === 0x00 && data[i + 2] === 0x00 && data[i + 3] === 0x01
+      ) {
+        startCodeLen = 4;
+      }
+      if (!startCodeLen) continue;
+      const nalIndex = i + startCodeLen;
+      if (nalIndex >= data.length) break;
+      const nalType = (data[nalIndex] >> 1) & 0x3f;
+      if (nalType >= 16 && nalType <= 21) return true;
+      i = nalIndex;
+    }
+    return false;
+  }
+
+  function fallbackFromVideoCodec(codec, reason) {
+    if (codec === "hevc" && disabledDecoderCodecs.has("hevc")) return;
+    const reasonText = normalizeFallbackReason(reason);
+    if (codec === "hevc" && browserDecoderCodecs.includes("h264")) {
+      disabledDecoderCodecs.add("hevc");
+      browserDecoderCodecs = browserDecoderCodecs.filter((name) => name !== "hevc");
+      negotiatedCodec = "h264";
+      destroyVideoDecoder();
+      console.warn("rd: falling back from hevc to h264", reasonText);
+      setCodecModeLabel("h264", "HEVC fallback");
+      if (ws.readyState === WebSocket.OPEN) {
+        const q = Number(qualitySlider?.value) || 90;
+        sendCmd("desktop_set_quality", {
+          quality: q,
+          codec: "h264",
+          softwareH264: useSoftwareH264(),
+          source: "viewer_fallback",
+          reason: reasonText,
+        });
+        requestEncoderCapabilities();
+      }
+      return;
+    }
+    fallbackToJpegCodec(reasonText);
+  }
+
+  function ensureVideoDecoder(videoBytes, width, height, codecName) {
     if (videoDecoder) {
       return true;
     }
@@ -1777,6 +2114,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       return false;
     }
     try {
+      const detectedCodec = codecName === "h264" ? h264CodecFromAnnexB(videoBytes) : "";
+      const codec = codecName === "hevc"
+        ? "hev1.1.6.L156.B0"
+        : (detectedCodec || h264StreamCodec || "avc1.4d0034");
       videoDecoder = new VideoDecoder({
         output: (frame) => {
           const width = frame.displayWidth || frame.codedWidth || frameWidth;
@@ -1792,35 +2133,46 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
           } finally {
             frame.close();
           }
+          diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || 0;
+          diagnostics.width = width;
+          diagnostics.height = height;
+          updateFpsDisplay();
         },
         error: (err) => {
-          console.warn("rd: h264 decoder error", err);
+          console.warn(`rd: ${codecName} decoder error`, err);
         },
       });
-      videoDecoder.configure({ codec: "avc1.42E01E", optimizeForLatency: true });
+      videoDecoder.addEventListener("dequeue", () => {
+        diagnostics.decodeQueue = videoDecoder?.decodeQueueSize || 0;
+      });
+      videoDecoder.configure({ codec, optimizeForLatency: true });
       return true;
     } catch (err) {
-      console.warn("rd: h264 decoder unavailable", err);
+      console.warn(`rd: ${codecName} decoder unavailable`, err);
       fallbackToJpegCodec(err);
       destroyVideoDecoder();
       return false;
     }
   }
 
-  async function processFrameBuffer(buf) {
+  async function processFrameBuffer(buf, receivedAt = performance.now()) {
+    const decodeStartedAt = performance.now();
     const fps = buf[5];
     const format = buf[6];
 
     if (format === 1) {
       const jpegBytes = buf.slice(8);
       setCodecModeLabel("jpeg", "active");
+      diagnostics.codec = "jpeg";
       await drawJpegSlice(jpegBytes, null);
+      recordCanvasFrameTiming(receivedAt, decodeStartedAt);
       updateFpsDisplay(fps);
       return;
     }
 
     if (format === 2 || format === 3) {
       setCodecModeLabel(format === 3 ? "raw" : "jpeg", format === 3 ? "blocks" : "blocks");
+      diagnostics.codec = format === 3 ? "raw blocks" : "jpeg blocks";
       if (buf.length < 16) return;
       const dv = new DataView(buf.buffer, 8);
       let pos = 0;
@@ -1872,15 +2224,18 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
 
       updateFpsDisplay(fps);
+      recordCanvasFrameTiming(receivedAt, decodeStartedAt);
       return;
     }
 
-    if (format === 4) {
-      setCodecModeLabel("h264", "active");
-      const h264Bytes = buf.slice(8);
-      if (!h264Bytes.length) return;
-      if (!ensureVideoDecoder()) {
-        fallbackToJpegCodec("WebCodecs decoder unavailable");
+    if (format === 4 || format === 5) {
+      const codecName = format === 5 ? "hevc" : "h264";
+      setCodecModeLabel(codecName, "active");
+      diagnostics.codec = codecName;
+      const videoBytes = buf.slice(8);
+      if (!videoBytes.length) return;
+      if (!ensureVideoDecoder(videoBytes, frameWidth, frameHeight, codecName)) {
+        fallbackFromVideoCodec(codecName, "WebCodecs decoder unavailable");
         return;
       }
 
@@ -1889,7 +2244,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       }
       h264FramesSeen += 1;
 
-      const isKey = isH264KeyFrame(h264Bytes);
+      const isKey = codecName === "hevc" ? isHEVCKeyFrame(videoBytes) : isH264KeyFrame(videoBytes);
 
       // If software H264 encode on the agent cannot keep up, automatically
       // fall back to JPEG blocks for a smoother interactive stream.
@@ -1904,7 +2259,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
         h264FramesSeen >= H264_MIN_FRAMES_BEFORE_FALLBACK &&
         h264LowFpsStreak >= H264_LOW_FPS_STREAK_LIMIT
       ) {
-        fallbackToJpegCodec(`low h264 fps (${fps})`);
+        fallbackFromVideoCodec(codecName, `low ${codecName} fps (${fps})`);
         return;
       }
 
@@ -1912,7 +2267,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const chunk = new EncodedVideoChunk({
         type: isKey ? "key" : "delta",
         timestamp: h264TimestampUs,
-        data: h264Bytes,
+        data: videoBytes,
       });
       h264TimestampUs += frameIntervalUs;
       try {
@@ -1925,21 +2280,21 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
           const now = Date.now();
           if (now - h264LastDecodeWarnAt >= H264_DECODE_WARN_THROTTLE_MS) {
             h264LastDecodeWarnAt = now;
-            console.warn("rd: h264 decode waiting for keyframe", {
+            console.warn(`rd: ${codecName} decode waiting for keyframe`, {
               streak: h264KeyframeErrorStreak,
               recoveries: h264RecoveryAttempts,
             });
           }
           if (h264KeyframeErrorStreak >= H264_KEYFRAME_ERROR_RESTART_THRESHOLD) {
-            const restarted = tryRecoverH264Stream("h264_keyframe_required");
+            const restarted = tryRecoverH264Stream(`${codecName}_keyframe_required`);
             if (!restarted) {
-              fallbackToJpegCodec("h264_keyframe_required_loop");
+              fallbackFromVideoCodec(codecName, `${codecName}_keyframe_required_loop`);
             }
           }
           return;
         }
-        console.warn("rd: h264 decode failed", err);
-        fallbackToJpegCodec(err);
+        console.warn(`rd: ${codecName} decode failed`, err);
+        fallbackFromVideoCodec(codecName, err);
       }
     }
   }
@@ -1951,7 +2306,7 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     const next = pendingFrame;
     pendingFrame = null;
     frameDecodeBusy = true;
-    processFrameBuffer(next).finally(() => {
+    processFrameBuffer(next.buf, next.receivedAt).finally(() => {
       frameDecodeBusy = false;
       if (pendingFrame) {
         flushPendingFrame();
@@ -1964,8 +2319,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const buf = new Uint8Array(ev.data);
       if (isFramePacket(buf)) {
         markFrameReceived();
+        recordWsFrameBytes(buf.byteLength);
         // Coalesce bursty arrivals so the renderer catches up to the newest frame.
-        pendingFrame = buf;
+        if (pendingFrame) diagnostics.coalescedFrames += 1;
+        pendingFrame = { buf, receivedAt: performance.now() };
         flushPendingFrame();
         return;
       }
@@ -1973,6 +2330,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
       const msg = decodeMsgpack(buf);
       if (msg && msg.type === "desktop_encoder_capabilities") {
         applyEncoderCapabilities(msg);
+        return;
+      }
+      if (msg && msg.type === "desktop_stream_stats") {
+        handleDesktopStreamStats(msg);
         return;
       }
       if (msg && msg.type === "status" && msg.status) {
@@ -2012,6 +2373,10 @@ import { createSharedUiSettingsSaver, loadSharedUiSettings } from "./shared-ui-s
     const msg = decodeMsgpack(ev.data);
     if (msg && msg.type === "desktop_encoder_capabilities") {
       applyEncoderCapabilities(msg);
+      return;
+    }
+    if (msg && msg.type === "desktop_stream_stats") {
+      handleDesktopStreamStats(msg);
       return;
     }
     if (msg && msg.type === "status" && msg.status) {

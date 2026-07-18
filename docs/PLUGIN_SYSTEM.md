@@ -2,7 +2,7 @@
 
 Extensible plugin system supporting multiple runtimes: server-side (Bun), WASM (Plugin 2.0), and native (C/C++/Go/Rust).
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Directory Layout
 

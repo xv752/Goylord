@@ -313,7 +313,7 @@ Fires per-platform before `go build`. This is where you can skip platforms, modi
   config: { ... full build config ... },
   outputName: "goylord-agent",
   env: { GOOS: "windows", GOARCH: "amd64", ... },
-  ldflags: "-X main.version=0.0.3 ...",
+  ldflags: "-X main.version=0.0.4 ...",
   tags: ["builder_release", "keylogger"]
 }
 ```
@@ -355,7 +355,7 @@ Fires after all post-processing (UPX, shellcode, SGN, etc.) and before the file 
     filename: "goylord-agent.exe",
     path: "/path/to/dist-clients/abc-123/goylord-agent.exe",
     platform: "windows-x64",
-    version: "0.0.3",
+    version: "0.0.4",
     size: 12345678
   }
 }

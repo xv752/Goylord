@@ -1,6 +1,6 @@
 # Build & Deployment
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Scripts
 
@@ -105,7 +105,7 @@ The server can build agent binaries on-demand via:
 ## Testing
 
 ```bash
-# Server tests (463 pass, 5 fail pre-existing)
+# Server tests (500 pass, 5 fail pre-existing)
 cd Goylord-Server && bun test
 
 # E2E tests (59/59 pass)

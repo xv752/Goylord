@@ -413,11 +413,11 @@ func logCaptureTimings(bitDur, dibDur, convDur time.Duration) {
 	if frames == 0 {
 		return
 	}
-	avg := func(totalNs atomic.Int64) float64 {
+	avg := func(totalNs *atomic.Int64) float64 {
 		return float64(totalNs.Swap(0)) / 1e6 / float64(frames)
 	}
-	bitAvg := avg(bitbltNs)
-	convAvg := avg(convertNs)
+	bitAvg := avg(&bitbltNs)
+	convAvg := avg(&convertNs)
 	log.Printf("capture: win bitblt avg bitblt=%.2fms convert=%.2fms frames=%d", bitAvg, convAvg, frames)
 }
 

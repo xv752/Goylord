@@ -2,7 +2,7 @@
 
 Native desktop "fat client" built with **Tauri 2** (Rust backend + system webview). Provides a lightweight operator interface for connecting to the Goylord server.
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Directory Layout
 

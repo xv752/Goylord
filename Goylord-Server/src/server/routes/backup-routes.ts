@@ -109,8 +109,7 @@ function buildZip(files: { name: string; data: Uint8Array }[]): Uint8Array {
   const totalSize = offset + centralDirSize + 22;
   const zip = new Uint8Array(totalSize);
   let pos = 0;
-  for (const lh of localHeaders) { zip.set(lh, pos); pos += lh.length; }
-  for (const file of files) { zip.set(file.data, pos); pos += file.data.length; }
+  for (let i = 0; i < files.length; i++) { zip.set(localHeaders[i], pos); pos += localHeaders[i].length; zip.set(files[i].data, pos); pos += files[i].data.length; }
   for (const ch of centralHeaders) { zip.set(ch, pos); pos += ch.length; }
   zip.set(eocd, pos);
 
@@ -201,103 +200,119 @@ export async function handleBackupRoutes(
       return new Response(JSON.stringify({ error: "Empty or invalid backup file" }), { status: 400, headers: { "Content-Type": "application/json", ...deps.CORS_HEADERS } });
     }
 
-    const zipBytes = new Uint8Array(body);
+    try {
+      const zipBytes = new Uint8Array(body);
 
-    // Parse ZIP: read local file headers
-    const decoder = new TextDecoder();
-    const entries: { name: string; data: Uint8Array; crc32: number }[] = [];
-    let pos = 0;
+      // Parse ZIP: read local file headers
+      // Use manual byte reads instead of DataView to avoid Bun ArrayBuffer bounds issues
+      const decoder = new TextDecoder();
+      const entries: { name: string; data: Uint8Array; crc32: number }[] = [];
+      let pos = 0;
 
-    while (pos + 30 <= zipBytes.length) {
-      const sig = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos, 4).getUint32(0, true);
-      if (sig !== 0x04034b50) break;
+      function readU16(offset: number): number {
+        return zipBytes[offset] | (zipBytes[offset + 1] << 8);
+      }
 
-      const nameLen = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 26, 2).getUint32(0, true) & 0xffff;
-      const extraLen = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 28, 2).getUint32(0, true) & 0xffff;
-      const compSize = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 18, 4).getUint32(0, true);
-      const storedCrc = new DataView(zipBytes.buffer, zipBytes.byteOffset + pos + 14, 4).getUint32(0, true);
-      const name = decoder.decode(zipBytes.subarray(pos + 30, pos + 30 + nameLen));
-      const dataStart = pos + 30 + nameLen + extraLen;
-      const data = zipBytes.slice(dataStart, dataStart + compSize);
-
-      entries.push({ name, data, crc32: storedCrc });
-      pos = dataStart + compSize;
+    function readU32(offset: number): number {
+      return (zipBytes[offset] | (zipBytes[offset + 1] << 8) | (zipBytes[offset + 2] << 16) | (zipBytes[offset + 3] << 24)) >>> 0;
     }
 
-    const applied: string[] = [];
-    const warnings: string[] = [];
+      while (pos + 30 <= zipBytes.length) {
+        const sig = readU32(pos);
+        if (sig !== 0x04034b50) break;
 
-    const allowedPatterns = /^(config\.json|database\.sqlite(-wal|-shm)?|users\.json|plugin-state\.json|custom\.css)$/;
+        const nameLen = readU16(pos + 26);
+        const extraLen = readU16(pos + 28);
+        const compSize = readU32(pos + 18);
+        const storedCrc = readU32(pos + 14);
+        const name = decoder.decode(zipBytes.subarray(pos + 30, pos + 30 + nameLen));
+        const dataStart = pos + 30 + nameLen + extraLen;
+        const data = zipBytes.slice(dataStart, dataStart + compSize);
 
-    for (const entry of entries) {
-      if (entry.name.includes("..") || entry.name.startsWith("/") || entry.name.startsWith("\\") || entry.name.includes("\\..")) {
-        warnings.push(`Rejected path-traversal entry: ${entry.name}`);
-        continue;
+        entries.push({ name, data, crc32: storedCrc });
+        pos = dataStart + compSize;
       }
-      if (!allowedPatterns.test(entry.name)) {
-        warnings.push(`Rejected unrecognized entry: ${entry.name}`);
-        continue;
-      }
-      if (crc32(entry.data) !== entry.crc32) {
-        warnings.push(`CRC32 mismatch for ${entry.name}, skipping`);
-        continue;
-      }
-      if (entry.name === "config.json") {
-        try {
-          const configData = JSON.parse(decoder.decode(entry.data));
-          const result = await importFullConfig(configData);
-          applied.push(...result.applied);
-          warnings.push(...result.warnings);
-        } catch (e: any) {
-          warnings.push(`Failed to import config.json: ${e.message}`);
+
+      const applied: string[] = [];
+      const warnings: string[] = [];
+
+      const allowedPatterns = /^(config\.json|database\.sqlite(-wal|-shm)?|users\.json|plugin-state\.json|custom\.css)$/;
+
+      for (const entry of entries) {
+        if (entry.name.includes("..") || entry.name.startsWith("/") || entry.name.startsWith("\\") || entry.name.includes("\\..")) {
+          warnings.push(`Rejected path-traversal entry: ${entry.name}`);
+          continue;
         }
-      } else if (entry.name === "database.sqlite") {
-        const dataDir = resolveDataDir();
-        const targetPath = join(dataDir, "goylord.db");
-        const { writeFileSync } = await import("fs");
-        writeFileSync(targetPath, entry.data);
-        applied.push("database (restart required to take effect)");
-      } else if (entry.name === "database.sqlite-wal") {
-        const dataDir = resolveDataDir();
-        const { writeFileSync } = await import("fs");
-        writeFileSync(join(dataDir, "goylord.db-wal"), entry.data);
-      } else if (entry.name === "database.sqlite-shm") {
-        const dataDir = resolveDataDir();
-        const { writeFileSync } = await import("fs");
-        writeFileSync(join(dataDir, "goylord.db-shm"), entry.data);
-      } else if (entry.name === "users.json") {
-        const dataDir = resolveDataDir();
-        const { writeFileSync } = await import("fs");
-        writeFileSync(join(dataDir, "users.json"), entry.data);
-        applied.push("users.json (restart required)");
-      } else if (entry.name === "plugin-state.json") {
-        const dataDir = resolveDataDir();
-        const { writeFileSync, mkdirSync } = await import("fs");
-        const pluginDir = join(dataDir, "plugins");
-        if (!existsSync(pluginDir)) mkdirSync(pluginDir, { recursive: true });
-        writeFileSync(join(pluginDir, ".plugin-state.json"), entry.data);
-        applied.push("plugin-state.json (restart required)");
-      } else if (entry.name === "custom.css") {
-        const css = decoder.decode(entry.data);
-        if (css.length <= 51200) {
-          await import("../../config").then(m => m.updateAppearanceConfig(css));
-          applied.push("custom.css");
-        } else {
-          warnings.push("custom.css exceeds 50 KB limit, skipped");
+        if (!allowedPatterns.test(entry.name)) {
+          warnings.push(`Rejected unrecognized entry: ${entry.name}`);
+          continue;
+        }
+        if (crc32(entry.data) !== entry.crc32) {
+          warnings.push(`CRC32 mismatch for ${entry.name}, skipping`);
+          continue;
+        }
+        if (entry.name === "config.json") {
+          try {
+            const configData = JSON.parse(decoder.decode(entry.data));
+            const result = await importFullConfig(configData);
+            applied.push(...result.applied);
+            warnings.push(...result.warnings);
+          } catch (e: any) {
+            warnings.push(`Failed to import config.json: ${e.message}`);
+          }
+        } else if (entry.name === "database.sqlite") {
+          const dataDir = resolveDataDir();
+          const { writeFileSync } = await import("fs");
+          writeFileSync(join(dataDir, "goylord.db.import"), entry.data);
+          applied.push("database (restart required to take effect)");
+        } else if (entry.name === "database.sqlite-wal") {
+          const dataDir = resolveDataDir();
+          const { writeFileSync } = await import("fs");
+          writeFileSync(join(dataDir, "goylord.db-wal.import"), entry.data);
+        } else if (entry.name === "database.sqlite-shm") {
+          const dataDir = resolveDataDir();
+          const { writeFileSync } = await import("fs");
+          writeFileSync(join(dataDir, "goylord.db-shm.import"), entry.data);
+        } else if (entry.name === "users.json") {
+          const dataDir = resolveDataDir();
+          const { writeFileSync } = await import("fs");
+          writeFileSync(join(dataDir, "users.json"), entry.data);
+          applied.push("users.json (restart required)");
+        } else if (entry.name === "plugin-state.json") {
+          const dataDir = resolveDataDir();
+          const { writeFileSync, mkdirSync } = await import("fs");
+          const pluginDir = join(dataDir, "plugins");
+          if (!existsSync(pluginDir)) mkdirSync(pluginDir, { recursive: true });
+          writeFileSync(join(pluginDir, ".plugin-state.json"), entry.data);
+          applied.push("plugin-state.json (restart required)");
+        } else if (entry.name === "custom.css") {
+          const css = decoder.decode(entry.data);
+          if (css.length <= 51200) {
+            await import("../../config").then(m => m.updateAppearanceConfig(css));
+            applied.push("custom.css");
+          } else {
+            warnings.push("custom.css exceeds 50 KB limit, skipped");
+          }
         }
       }
+
+      logger.info(`[backup] Import by user ${user.username}: applied=${applied.join(", ")}`);
+
+      return Response.json({
+        ok: applied.length > 0,
+        applied,
+        warnings,
+        message: applied.length > 0
+          ? `Restored ${applied.length} item(s). Restart the server for database/user changes to take effect.`
+          : "No recognized backup data found in the uploaded file.",
+      }, { headers: deps.CORS_HEADERS });
+    } catch (e: any) {
+      logger.error(`[backup] Import failed: ${e.message}`);
+      return new Response(JSON.stringify({ error: `Backup import failed: ${e.message}` }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...deps.CORS_HEADERS },
+      });
     }
-
-    logger.info(`[backup] Import by user ${user.username}: applied=${applied.join(", ")}`);
-
-    return Response.json({
-      ok: applied.length > 0,
-      applied,
-      warnings,
-      message: applied.length > 0
-        ? `Restored ${applied.length} item(s). Restart the server for database/user changes to take effect.`
-        : "No recognized backup data found in the uploaded file.",
-    }, { headers: deps.CORS_HEADERS });
   }
 
   return null;

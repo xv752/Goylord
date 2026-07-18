@@ -1,6 +1,6 @@
 # Goylord — Project Structure
 
-**Version:** 2.5.3
+**Version:** 0.0.5
 
 ## Tree Map
 
@@ -33,8 +33,24 @@ Goylord/
 ├── go.work.sum
 ├── LICENSE                          # Apache 2.0
 ├── Goylord-Client/                 # Go agent — runs on target machines
+│   └── cmd/agent/
+│       ├── capture/                 # Screen capture + H264 bitrate management, stream stats
+│       ├── webrtcpub/               # WebRTC publishing (Opus audio, Pion P2P, TURN ICE)
+│       └── wire/                    # Binary protocol (msgpack, DesktopStreamStats)
 ├── Goylord-Desktop/                # Tauri 2 desktop app — native operator interface
 ├── Goylord-Server/                 # TypeScript/Bun server — web panel + API
+│   ├── src/
+│   │   ├── httpHandlers.ts          # REST client listing, command dispatch
+│   │   ├── paths.ts                 # Simplified path resolution
+│   │   ├── db/user-schema.ts        # User DB migrations (incl. 015: onboarding_completed_at)
+│   │   └── server/
+│   │       ├── viewer-authorization.ts     # Per-viewer session validation and access control
+│   │       └── desktop-codec-negotiation.ts  # HEVC codec negotiation and browser decoder probing
+│   └── public/
+│       ├── remotedesktop.html       # Remote desktop page
+│       └── assets/
+│           ├── remotedesktop.js     # Diagnostics HUD, stream stats, bitrate control
+│           └── webrtc-stats.js      # WebRTCStatsSampler class
 ├── plugins/                         # Plugin system (WASM, native, server-side)
 ├── scripts/                         # Build, dev, and deployment scripts
 ├── stress/                          # k6 WebSocket load tests

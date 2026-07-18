@@ -2,7 +2,7 @@
 
 k6-based WebSocket load tests for the Goylord server.
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Directory Layout
 

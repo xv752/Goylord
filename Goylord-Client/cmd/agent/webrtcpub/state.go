@@ -216,6 +216,15 @@ type Options struct {
 	// HasVideo / HasAudio select which tracks to add to the peer connection.
 	HasVideo bool
 	HasAudio bool
+	// ICEServers are STUN/TURN servers provided by the server. Empty means use defaults.
+	ICEServers []ICEServer
+}
+
+// ICEServer represents a STUN/TURN server entry.
+type ICEServer struct {
+	URLs       []string `json:"urls"        msgpack:"urls"`
+	Username   string   `json:"username"    msgpack:"username"`
+	Credential string   `json:"credential"  msgpack:"credential"`
 }
 
 type ICECandidate struct {

@@ -19,7 +19,7 @@ func Stop(_ Kind)  {}
 func StopAll()     {}
 func (*Publisher) Close() {}
 
-func StartP2POffer(_ context.Context, _ Kind, _ string, _ string, _ P2POfferCallbacks, _ bool, _ bool) (string, error) {
+func StartP2POffer(_ context.Context, _ Kind, _ string, _ string, _ P2POfferCallbacks, _ bool, _ bool, _ []ICEServer) (string, error) {
 	return "", ErrNotCompiled
 }
 

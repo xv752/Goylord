@@ -2,7 +2,7 @@
 
 Windows DLL for **HVNC frame capture**. Hooks `IDXGISwapChain::Present` to intercept rendered frames from browser processes on the hidden desktop.
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Directory Layout
 

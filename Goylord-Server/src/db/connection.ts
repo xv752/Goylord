@@ -2,6 +2,7 @@ import Database from "bun:sqlite";
 import type { Statement } from "bun:sqlite";
 import { resolve } from "path";
 import { ensureDataDir } from "../paths";
+import { existsSync, renameSync, unlinkSync } from "fs";
 
 export interface TypedDatabase extends Omit<Database, "run" | "query" | "prepare"> {
   run(sql: string, ...params: any[]): import("bun:sqlite").Changes;
@@ -11,6 +12,26 @@ export interface TypedDatabase extends Omit<Database, "run" | "query" | "prepare
 
 const dataDir = ensureDataDir();
 export const dbPath = resolve(dataDir, "goylord.db");
+
+function applyPendingDbImport(): void {
+  const importPath = dbPath + ".import";
+  if (!existsSync(importPath)) return;
+  try {
+    renameSync(importPath, dbPath);
+    for (const ext of ["-wal", "-shm"]) {
+      const src = dbPath + ext + ".import";
+      const dst = dbPath + ext;
+      if (existsSync(src)) renameSync(src, dst);
+      else if (existsSync(dst)) { try { unlinkSync(dst); } catch {} }
+    }
+    console.log("[db] Applied pending database import from backup");
+  } catch (e: any) {
+    console.error("[db] Failed to apply pending import:", e.message);
+  }
+}
+
+applyPendingDbImport();
+
 export const db: TypedDatabase = new Database(dbPath) as any;
 
 function numberPragmaEnv(name: string, fallback: number, min: number): number {

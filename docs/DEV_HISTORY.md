@@ -1,6 +1,6 @@
 # Development History
 
-**Version:** 2.5.3
+**Version:** 0.0.4
 
 ## Git Overview
 
@@ -9,7 +9,7 @@
 | Total commits | ~400+ |
 | Active branches | `main` (active) |
 | Tags | `Goylord-Desktop-v1.0.1`, `Goylord-Desktop-v1.0.2` |
-| Version range | 1.0.2 → 2.5.3 (current) |
+| Version range | 1.0.2 → 0.0.4 (current) |
 | License | Apache 2.0 |
 
 ## Contributors
@@ -105,7 +105,7 @@
 - SPA-aware command menu and modals
 - Console→Clients navigation fix (rAF cancellation, AbortController)
 - HVNC injection memory fix (kdot contribution: `CreateEnvironmentBlock` API)
-- Version sync across all components (2.5.3)
+- Version sync across all components (0.0.4)
 
 ## Key Pull Requests Merged
 

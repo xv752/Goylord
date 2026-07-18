@@ -40,7 +40,7 @@ func p2pSessionKey(kind Kind, sessionID string) string {
 // returns the SDP answer. The offer must contain matching m-sections — the
 // browser side decides via its transceivers what to ask for. Trickle ICE
 // candidates emitted by Pion are delivered to opts.OnICE.
-func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP string, opts P2POfferCallbacks, hasVideo, hasAudio bool) (string, error) {
+func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP string, opts P2POfferCallbacks, hasVideo, hasAudio bool, iceServers []ICEServer) (string, error) {
 	ensureFirewallRule()
 	_ = ctx
 	if sessionID == "" {
@@ -82,11 +82,21 @@ func StartP2POffer(ctx context.Context, kind Kind, sessionID string, offerSDP st
 	}
 
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
-	pc, err := api.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
+	iceCfg := webrtc.Configuration{}
+	if len(iceServers) > 0 {
+		for _, s := range iceServers {
+			iceCfg.ICEServers = append(iceCfg.ICEServers, webrtc.ICEServer{
+				URLs:       s.URLs,
+				Username:   s.Username,
+				Credential: s.Credential,
+			})
+		}
+	} else {
+		iceCfg.ICEServers = []webrtc.ICEServer{
 			{URLs: []string{"stun:stun.l.google.com:19302"}},
-		},
-	})
+		}
+	}
+	pc, err := api.NewPeerConnection(iceCfg)
 	if err != nil {
 		return "", fmt.Errorf("new peer connection: %w", err)
 	}
