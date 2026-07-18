@@ -38,6 +38,12 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 |---------|-----------|-------------|
 | `src/version.ts`, `package.json`, config.go, tauri.conf.json, Desktop package.json, Cargo.toml | all | Version aligned to 0.0.5 |
 
+#### x264-float-fix - Fix x264 compile error on macOS/Linux CI
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `cmd/agent/capture/h264_encoder_x264.go` | client | Removed incorrect `float64()` cast on `targetH264CRF()` (returns `float32`) — 3 occurrences |
+| `README.md` | docs | Resolved merge conflict with upstream, updated version to 0.0.5 |
+
 ---
 
 ## [0.0.4] - 2026-07-17
