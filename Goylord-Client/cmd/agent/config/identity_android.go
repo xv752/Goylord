@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-const androidMachineIDFile = "config/android_machine_id"
+const androidMachineIDFile = "android_machine_id"
 
 func platformMachineID() string {
-	data, err := os.ReadFile(androidMachineIDFile)
+	idPath := ensureStateDir() + "/" + androidMachineIDFile
+	data, err := os.ReadFile(idPath)
 	if err == nil {
 		if id := strings.TrimSpace(string(data)); id != "" {
 			return id
@@ -27,11 +28,7 @@ func platformMachineID() string {
 	}
 	id := hex.EncodeToString(b)
 
-	if err := os.MkdirAll("config", 0700); err != nil {
-		log.Printf("[identity] WARNING: failed to create config dir for android machine ID: %v", err)
-		return id
-	}
-	if err := os.WriteFile(androidMachineIDFile, []byte(id), 0600); err != nil {
+	if err := os.WriteFile(idPath, []byte(id), 0600); err != nil {
 		log.Printf("[identity] WARNING: failed to persist android machine ID: %v", err)
 	}
 	return id

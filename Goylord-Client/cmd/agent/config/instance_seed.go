@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-const instanceSeedFile = "config/instance_seed"
+const instanceSeedFile = "instance_seed"
 
 func getOrCreateInstanceSeed() string {
-	data, err := os.ReadFile(instanceSeedFile)
+	seedPath := ensureStateDir() + "/" + instanceSeedFile
+	data, err := os.ReadFile(seedPath)
 	if err == nil {
 		if seed := strings.TrimSpace(string(data)); seed != "" {
 			return seed
@@ -27,11 +28,7 @@ func getOrCreateInstanceSeed() string {
 	}
 	seed := hex.EncodeToString(b)
 
-	if err := os.MkdirAll("config", 0700); err != nil {
-		log.Printf("[identity] WARNING: failed to create config dir for instance seed: %v", err)
-		return seed
-	}
-	if err := os.WriteFile(instanceSeedFile, []byte(seed), 0600); err != nil {
+	if err := os.WriteFile(seedPath, []byte(seed), 0600); err != nil {
 		log.Printf("[identity] WARNING: failed to persist instance seed: %v", err)
 	}
 	return seed

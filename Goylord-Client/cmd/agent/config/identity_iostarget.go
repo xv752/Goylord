@@ -10,10 +10,11 @@ import (
 	"strings"
 )
 
-const iosMachineIDFile = "config/ios_machine_id"
+const iosMachineIDFile = "ios_machine_id"
 
 func platformMachineID() string {
-	data, err := os.ReadFile(iosMachineIDFile)
+	idPath := ensureStateDir() + "/" + iosMachineIDFile
+	data, err := os.ReadFile(idPath)
 	if err == nil {
 		if id := strings.TrimSpace(string(data)); id != "" {
 			return id
@@ -27,11 +28,7 @@ func platformMachineID() string {
 	}
 	id := hex.EncodeToString(b)
 
-	if err := os.MkdirAll("config", 0700); err != nil {
-		log.Printf("[identity] WARNING: failed to create config dir for iOS machine ID: %v", err)
-		return id
-	}
-	if err := os.WriteFile(iosMachineIDFile, []byte(id), 0600); err != nil {
+	if err := os.WriteFile(idPath, []byte(id), 0600); err != nil {
 		log.Printf("[identity] WARNING: failed to persist iOS machine ID: %v", err)
 	}
 	return id
