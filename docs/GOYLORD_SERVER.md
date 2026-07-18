@@ -18,7 +18,7 @@ Goylord-Server/
 │   └── seed_fake_clients.py         # Dev: seeds test clients into DB
 ├── src/
 │   ├── index.ts                     # Entry point → imports main-server.ts
-│   ├── main-server.ts               # Core: HTTP routes, WS handlers, TLS, plugins, builds (~874 lines)
+│   ├── main-server.ts               # Core: HTTP routes, WS handlers, TLS, plugins, builds (~847 lines)
 │   ├── types.ts                     # ClientInfo, ListFilters, ListItem, ListResult, ClientRole
 │   ├── version.ts                   # SERVER_VERSION = "0.0.5"
 │   ├── auth.ts                      # JWT auth (jose), session management, password verification
@@ -45,7 +45,7 @@ Goylord-Server/
 │   ├── logger.ts                    # Winston-based logging
 │   ├── styles.css                   # Tailwind CSS input
 │   ├── server/
-│   │   ├── routes/                  # HTTP route handlers (40 files, 33 implementation + 7 tests)
+│   │   ├── routes/                  # HTTP route handlers (43 files, 33 implementation + 10 test files)
 │   │   │   ├── auth-routes.ts       # Login, register, password change
 │   │   │   ├── oidc-routes.ts       # OpenID Connect / SSO
 │   │   │   ├── build-routes.ts      # Agent binary build orchestration
@@ -76,8 +76,10 @@ Goylord-Server/
 │   │   │   ├── rd-recording-routes.ts  # Remote desktop recording
 │   │   │   ├── sol-routes.ts        # Solana-related routes
 │   │   │   ├── winre-routes.ts      # WinRE persistence routes
+│   │   │   ├── ui-routes.ts         # UI settings routes
+│   │   │   ├── auth-cookie.ts       # Auth cookie helpers
 │   │   │   └── ws-upgrade-routes.ts  # WebSocket upgrade endpoints
-│   │   ├── ws-console-rd-hvnc.ts    # Remote desktop, console, HVNC viewer relay
+│   │   ├── ws-console-rd-backstage.ts  # Remote desktop, console, HVNC viewer relay
 │   │   ├── ws-voice.ts              # Voice/audio streaming relay
 │   │   ├── ws-desktop-audio.ts      # Desktop audio streaming relay
 │   │   ├── ws-file-process-proxy-keylogger.ts  # File browser, process viewer, keylogger proxy
@@ -92,6 +94,8 @@ Goylord-Server/
 │   │   ├── viewer-authorization.ts     # Per-viewer session validation and access control
 │   │   ├── desktop-codec-negotiation.ts  # HEVC codec negotiation and browser decoder probing
 │   │   ├── notification-delivery.ts # Push notifications, webhooks, Telegram
+│   │   ├── build-signing.ts          # Ed25519 build artifact signing
+│   │   ├── agent-auth.ts             # Agent authentication and token validation
 │   │   └── plugin-runtime/          # Server-side plugin sandboxed runtime
 │   ├── sessions/
 │   │   └── sessionManager.ts        # WebSocket session tracking
@@ -163,7 +167,6 @@ Goylord-Server/
 | `/api/groups` | GET | Client groups |
 | `/api/users` | GET | User management |
 | `/api/build` | POST | Start agent build |
-| `/api/clients/list` | GET | REST client listing (httpHandlers.ts) |
 | `/api/webrtc/ice-config` | GET | TURN/STUN ICE server credentials for WebRTC |
 
 ## Running
@@ -173,5 +176,5 @@ cd Goylord-Server
 bun run dev          # Development (with file watching)
 bun run build        # Production build
 bun run typecheck    # TypeScript type checking
-bun test             # Run tests (486 pass, 5 fail)
+bun test             # Run tests (637 pass, 5 fail)
 ```

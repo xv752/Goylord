@@ -30,7 +30,6 @@ Goylord/
 ├── docker-compose.quickstart.yml    # Minimal: server only
 ├── Dockerfile                       # Multi-stage: builder (Go, garble, Donut, SGN) + runtime (Bun)
 ├── go.work                          # Go workspace: links client + sample-go plugin
-├── go.work.sum
 ├── LICENSE                          # Apache 2.0
 ├── Goylord-Client/                 # Go agent — runs on target machines
 │   └── cmd/agent/
@@ -40,12 +39,12 @@ Goylord/
 ├── Goylord-Desktop/                # Tauri 2 desktop app — native operator interface
 ├── Goylord-Server/                 # TypeScript/Bun server — web panel + API
 │   ├── src/
-│   │   ├── httpHandlers.ts          # REST client listing, command dispatch
 │   │   ├── paths.ts                 # Simplified path resolution
 │   │   ├── db/user-schema.ts        # User DB migrations (incl. 015: onboarding_completed_at)
 │   │   └── server/
 │   │       ├── viewer-authorization.ts     # Per-viewer session validation and access control
-│   │       └── desktop-codec-negotiation.ts  # HEVC codec negotiation and browser decoder probing
+│   │       ├── desktop-codec-negotiation.ts  # HEVC codec negotiation and browser decoder probing
+│   │       └── turn-credentials.ts        # TURN credential generation for WebRTC
 │   └── public/
 │       ├── remotedesktop.html       # Remote desktop page
 │       └── assets/

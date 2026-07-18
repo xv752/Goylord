@@ -2,7 +2,7 @@
 
 Native desktop "fat client" built with **Tauri 2** (Rust backend + system webview). Provides a lightweight operator interface for connecting to the Goylord server.
 
-**Version:** 0.0.4
+**Version:** 0.0.5
 
 ## Directory Layout
 
@@ -41,6 +41,7 @@ Goylord-Desktop/
 | `get_saved_connection` | Retrieve last used server address |
 | `connect_to_server` | Validate connection, open main webview |
 | `go_back_to_connect` | Return to connection screen |
+| `get_pending_error` | Retrieve any connection error to display on UI |
 
 ## Build
 

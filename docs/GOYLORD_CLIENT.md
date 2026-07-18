@@ -2,7 +2,7 @@
 
 Cross-platform agent binary written in **Go** that runs on target machines. Connects to the Goylord server via WebSocket and provides remote access capabilities.
 
-**Version:** 0.0.4
+**Version:** 0.0.5
 
 ## Directory Layout
 
@@ -23,23 +23,27 @@ Goylord-Client/
 │   ├── self_embed.go                # Self-embedding for shellcode persistence
 │   ├── crashlog.go                  # Crash logging and reporting
 │   ├── config/
-│   │   └── config.go                # Agent configuration (AgentVersion = "0.0.4")
+│   │   └── config.go                # Agent configuration (AgentVersion = "0.0.5")
 │   ├── handlers/
 │   │   ├── command.go               # Command execution (cmd/sh, bash)
-│   │   ├── filebrowser.go           # File browsing, upload, download
-│   │   ├── process.go               # Process listing, killing
+│   │   ├── files.go                # File browsing, upload, download
+│   │   ├── processes.go               # Process listing, killing
 │   │   ├── screenshot.go            # Screenshot capture
 │   │   ├── desktop.go               # Remote desktop (mouse, keyboard, screen)
-│   │   ├── hvnc.go                  # HVNC (hidden VNC) management
+│   │   ├── backstage.go                  # HVNC (hidden VNC) management
 │   │   ├── webcam.go                # Webcam capture
 │   │   ├── keylogger.go             # Keystroke logging
-│   │   ├── clipboard.go             # Clipboard sync
+│   │   ├── clipboard_sync_windows.go # Clipboard sync
+│   │   ├── clipboard_sync_stub.go    # Clipboard sync (non-Windows)
 │   │   ├── webrtc.go                # WebRTC P2P streaming
-│   │   ├── plugin.go                # Plugin load/events
-│   │   ├── update.go                # Agent self-update
-│   │   ├── elevate.go               # Privilege escalation (UAC bypass, sudo)
+│   │   ├── plugin_load.go           # Plugin loading
+│   │   ├── plugin_event.go          # Plugin events
+│   │   ├── agent_update.go          # Agent self-update
+│   │   ├── elevate_windows.go       # Privilege escalation (UAC bypass)
+│   │   ├── elevate_other.go         # Privilege escalation (non-Windows stub)
 │   │   ├── socks5.go                # SOCKS5 proxy
-│   │   ├── silent.go                # Silent execution
+│   │   ├── silent_exec_windows.go   # Silent execution (Windows)
+│   │   ├── silent_exec_unix.go      # Silent execution (Unix)
 │   │   └── ping.go                  # Ping/pong heartbeat
 │   ├── wire/
 │   │   ├── codec.go                 # Binary protocol codec (msgpack-based)
@@ -52,7 +56,7 @@ Goylord-Client/
 │   ├── persistence/
 │   │   └── persistence.go           # Persistence mechanisms (registry, startup, etc.)
 │   ├── plugins/
-│   │   └── runtime.go               # WASM plugin runtime (wazero)
+│   │   └── wasm_runtime.go               # WASM plugin runtime (wazero)
 │   ├── webrtcpub/
 │   │   ├── state.go                 # Writer registry, Options (incl. ICEServers), ICECandidate
 │   │   ├── whip_pion.go             # WebRTC publishing: WHIP relay via MediaMTX

@@ -1,6 +1,6 @@
 # Tech Stack
 
-**Version:** 0.0.4
+**Version:** 0.0.5
 
 ## Languages & Runtimes
 
@@ -61,7 +61,14 @@
 | jezek/xgb | X11 (Linux) |
 | gen2brain/malgo | Audio (macOS) |
 | Kirizu-Official/windows-camera-go | Windows camera capture |
-| Opus (xmtp/go-codec) | Opus 48kHz stereo audio encoding for WebRTC streaming |
+| Opus (thesyncim/gopus) | Opus 48kHz stereo audio encoding for WebRTC streaming |
+
+### WebRTC / TURN Infrastructure
+| Component | Purpose |
+|---|---|
+| TURN/Coturn | ICE relay for symmetric NAT traversal |
+| turn-credentials.ts | HMAC-SHA1 short-lived TURN credential generation |
+| MediaMTX | WebRTC/WHIP/WHEP media relay server |
 
 ### Desktop (Goylord-Desktop)
 | Package | Purpose |

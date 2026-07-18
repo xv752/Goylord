@@ -151,10 +151,14 @@
 - Crash logging and reporting
 - System info collection (CPU, GPU, RAM, battery, admin status)
 - Active window detection
-- SOCKS5 proxy (tunnel traffic through agent)
+- Agent stealth: persistent state stored in hidden OS paths (`%APPDATA%\Microsoft\Windows` on Windows, `/var/tmp/.cache` on Linux/macOS) to blend in with normal OS files
 - Hardware filtering support (CPU, GPU, RAM metadata)
 - H264 dynamic bitrate management (auto-bitrate, manual bitrate, CRF modes)
 - Stream stats reporting (frame rate, bitrate, resolution every 500ms)
+
+## Server-Side Proxy
+
+- SOCKS5 proxy (tunnel traffic through agent — server-side orchestration)
 
 ## Notifications
 

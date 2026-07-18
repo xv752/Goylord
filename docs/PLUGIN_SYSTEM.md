@@ -2,7 +2,7 @@
 
 Extensible plugin system supporting multiple runtimes: server-side (Bun), WASM (Plugin 2.0), and native (C/C++/Go/Rust).
 
-**Version:** 0.0.4
+**Version:** 0.0.5
 
 ## Directory Layout
 
@@ -50,7 +50,7 @@ plugins/
 - Have access to server APIs (client management, builds, etc.)
 - Example: `sample-build-hooks/`, `sample-ts-fullstack/`
 
-### 2. WASM Plugins (Plugin 2.0)
+### 3. WASM Plugins (Plugin 2.0)
 - Run sandboxed on agents via wazero runtime
 - Support declared permissions and bridge APIs
 - Languages: C, TinyGo, Rust (any WASI-compatible compiler)

@@ -1,6 +1,6 @@
 # Build & Deployment
 
-**Version:** 0.0.4
+**Version:** 0.0.5
 
 ## Scripts
 
@@ -45,7 +45,7 @@ docker compose -f docker-compose.quickstart.yml up -d
 **docker-compose.yml** (Linux):
 - `goylord-server` — Main server container
 - `mediamtx` — WebRTC media relay sidecar
-- Uses host networking for simplicity
+- Uses bridge networking (port mapping: 5173, 8443, 1935, 50000–50100). Host networking is only used in `docker-compose.quickstart.yml`
 
 **Persistent Volumes**:
 - `data/` — SQLite database
