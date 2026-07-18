@@ -48,14 +48,23 @@ services:
       GOYLORD_FILE_UPLOAD_INTENT_TTL_MS: ${GOYLORD_FILE_UPLOAD_INTENT_TTL_MS:-1800000}
       GOYLORD_FILE_UPLOAD_PULL_TTL_MS: ${GOYLORD_FILE_UPLOAD_PULL_TTL_MS:-1800000}
       # WebRTC: Bun reaches MediaMTX via the docker service name on bridge net.
-      GOYLORD_MEDIAMTX_URL: ${GOYLORD_MEDIAMTX_URL:-http://mediamtx:8889}
+      GOYLORD_MEDIAMTX_URL: ${GOYLORD_MEDIAMTX_URL:-http://goylord-mediamtx:8889}
+      GOYLORD_TURN_HOST: ${GOYLORD_TURN_HOST:-127.0.0.1}
+      GOYLORD_TURN_PORT: ${GOYLORD_TURN_PORT:-3478}
+      GOYLORD_TURN_REALM: ${GOYLORD_TURN_REALM:-goylord}
+      GOYLORD_TURN_SECRET_FILE: /run/goylord-turn/secret
+      GOYLORD_TURN_CREDENTIAL_TTL_SECONDS: ${GOYLORD_TURN_CREDENTIAL_TTL_SECONDS:-3600}
     depends_on:
-      - mediamtx
+      mediamtx:
+        condition: service_started
+      turn-secret-init:
+        condition: service_completed_successfully
     volumes:
       - goylord-data:/app/data
       - goylord-certs:/app/certs
       - goylord-client-build-cache:/app/client-build-cache
       - goylord-plugins:/app/plugins
+      - goylord-turn-secret:/run/goylord-turn:ro
       # Uncomment to mount host certbot certs read-only
       # - /etc/letsencrypt:/etc/letsencrypt:ro
       # Uncomment to use a static config file instead of env vars
@@ -71,6 +80,42 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  turn-secret-init:
+    image: alpine:3.22
+    command: ["/bin/sh", "-ec", "umask 077; if [ ! -s /run/goylord-turn/secret ]; then head -c 32 /dev/urandom | base64 > /run/goylord-turn/secret; fi; IFS= read -r turn_secret < /run/goylord-turn/secret; printf 'webrtcICEServers2:\n  - url: \"stun:%s:%s\"\n  - url: \"turn:%s:%s?transport=udp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n  - url: \"turn:%s:%s?transport=tcp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n' \"$${GOYLORD_TURN_HOST}\" \"$${GOYLORD_TURN_PORT}\" \"$${GOYLORD_TURN_HOST}\" \"$${GOYLORD_TURN_PORT}\" \"$$turn_secret\" \"$${GOYLORD_TURN_HOST}\" \"$${GOYLORD_TURN_PORT}\" \"$$turn_secret\" > /run/goylord-turn/mediamtx.yml; chmod 0444 /run/goylord-turn/secret /run/goylord-turn/mediamtx.yml"]
+    environment:
+      GOYLORD_TURN_HOST: ${GOYLORD_TURN_HOST:-127.0.0.1}
+      GOYLORD_TURN_PORT: ${GOYLORD_TURN_PORT:-3478}
+    volumes:
+      - goylord-turn-secret:/run/goylord-turn
+    restart: "no"
+
+  coturn:
+    image: coturn/coturn:4.14.0-r0-alpine
+    container_name: goylord-coturn
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        secret="$$(cat /run/goylord-turn/secret)"
+        external=""
+        if [ -n "$${GOYLORD_TURN_EXTERNAL_IP:-}" ]; then external="--external-ip=$${GOYLORD_TURN_EXTERNAL_IP}"; fi
+        exec turnserver --fingerprint --use-auth-secret --static-auth-secret="$$secret" --realm="$${GOYLORD_TURN_REALM:-goylord}" --listening-port=3478 --min-port=49160 --max-port=49200 --no-tls --no-dtls --no-multicast-peers --log-file=stdout $$external
+    environment:
+      GOYLORD_TURN_REALM: ${GOYLORD_TURN_REALM:-goylord}
+      GOYLORD_TURN_EXTERNAL_IP: ${GOYLORD_TURN_EXTERNAL_IP:-127.0.0.1}
+    volumes:
+      - goylord-turn-secret:/run/goylord-turn:ro
+    depends_on:
+      turn-secret-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
 
   mediamtx:
     image: bluenviron/mediamtx:latest
@@ -97,9 +142,15 @@ services:
       # a different machine, override with the host's LAN/public IP, e.g.:
       #   GOYLORD_WEBRTC_ADDITIONAL_HOSTS=127.0.0.1,192.168.1.42
       MTX_WEBRTCADDITIONALHOSTS: ${GOYLORD_WEBRTC_ADDITIONAL_HOSTS:-127.0.0.1}
+    volumes:
+      - goylord-turn-secret:/run/goylord-turn:ro
+    depends_on:
+      turn-secret-init:
+        condition: service_completed_successfully
 
 volumes:
   goylord-data:
   goylord-certs:
   goylord-client-build-cache:
   goylord-plugins:
+  goylord-turn-secret:

@@ -44,6 +44,13 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 | `cmd/agent/capture/h264_encoder_x264.go` | client | Removed incorrect `float64()` cast on `targetH264CRF()` (returns `float32`) — 3 occurrences |
 | `README.md` | docs | Resolved merge conflict with upstream, updated version to 0.0.5 |
 
+#### docker-compose-turn - Port upstream TURN/coturn/MediaMTX compose stack
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `docker-compose.yml` | infra | Added `turn-secret-init`, `coturn` services; `goylord-turn-secret` volume; TURN env vars; mediamtx uses generated config |
+| `docker-compose.windows.yml` | infra | Same additions with bridge networking and explicit port mappings |
+| `docker-compose.quickstart.yml` | infra | Added `mediamtx`, `turn-secret-init`, `coturn` with host networking; TURN env vars |
+
 ---
 
 ## [0.0.4] - 2026-07-17

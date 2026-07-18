@@ -10,10 +10,10 @@ services:
         - type=local,dest=.docker-cache/buildx,mode=max
     container_name: goylord-server
     ports:
-      - "${PORT:-5173}:${PORT:-5173}"
+      - "${PORT:-5173}:5173"
     environment:
-      PORT: ${PORT:-5173}
-      HOST: ${HOST:-0.0.0.0}
+      PORT: 5173
+      HOST: 0.0.0.0
       # Optional: set an explicit initial admin account. If GOYLORD_PASS is empty,
       # the server generates one-time bootstrap secrets and stores them in /app/data/save.json.
       GOYLORD_USER: ${GOYLORD_USER:-admin}
@@ -47,10 +47,20 @@ services:
       GOYLORD_CLIENT_BUILD_CACHE_DIR: ${GOYLORD_CLIENT_BUILD_CACHE_DIR:-/app/client-build-cache}
       GOYLORD_FILE_UPLOAD_INTENT_TTL_MS: ${GOYLORD_FILE_UPLOAD_INTENT_TTL_MS:-1800000}
       GOYLORD_FILE_UPLOAD_PULL_TTL_MS: ${GOYLORD_FILE_UPLOAD_PULL_TTL_MS:-1800000}
-      # WebRTC: where Bun reaches MediaMTX HTTP (WHIP/WHEP signaling).
-      # Host networking on Linux → localhost works. WebRTC is opt-in; leave the
+      # WebRTC: Bun reaches MediaMTX HTTP (WHIP/WHEP signaling).
+      # Host networking on Linux -> localhost works. WebRTC is opt-in; leave the
       # toggle in the UI off if MediaMTX is not running.
       GOYLORD_MEDIAMTX_URL: ${GOYLORD_MEDIAMTX_URL:-http://goylord-mediamtx:8889}
+      GOYLORD_TURN_HOST: ${GOYLORD_TURN_HOST:-127.0.0.1}
+      GOYLORD_TURN_PORT: ${GOYLORD_TURN_PORT:-3478}
+      GOYLORD_TURN_REALM: ${GOYLORD_TURN_REALM:-goylord}
+      GOYLORD_TURN_SECRET_FILE: /run/goylord-turn/secret
+      GOYLORD_TURN_CREDENTIAL_TTL_SECONDS: ${GOYLORD_TURN_CREDENTIAL_TTL_SECONDS:-3600}
+    depends_on:
+      mediamtx:
+        condition: service_started
+      turn-secret-init:
+        condition: service_completed_successfully
     volumes:
       # goylord-data also caches downloaded cross-compile toolchains
       # under /app/data/toolchains, fetched on first agent build for a
@@ -59,6 +69,7 @@ services:
       - goylord-certs:/app/certs
       - goylord-client-build-cache:/app/client-build-cache
       - goylord-plugins:/app/plugins
+      - goylord-turn-secret:/run/goylord-turn:ro
       # Uncomment to mount host certbot certs read-only
       # - /etc/letsencrypt:/etc/letsencrypt:ro
       # Uncomment to use a static config file instead of env vars
@@ -75,37 +86,76 @@ services:
       retries: 3
       start_period: 40s
 
+  turn-secret-init:
+    image: alpine:3.22
+    command: ["/bin/sh", "-ec", "umask 077; if [ ! -s /run/goylord-turn/secret ]; then head -c 32 /dev/urandom | base64 > /run/goylord-turn/secret; fi; IFS= read -r turn_secret < /run/goylord-turn/secret; printf 'webrtcICEServers2:\n  - url: \"stun:%s:%s\"\n  - url: \"turn:%s:%s?transport=udp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n  - url: \"turn:%s:%s?transport=tcp\"\n    username: AUTH_SECRET\n    password: \"%s\"\n    clientOnly: true\n' \"$${GOYLORD_TURN_HOST}\" \"$${GOYLORD_TURN_PORT}\" \"$${GOYLORD_TURN_HOST}\" \"$${GOYLORD_TURN_PORT}\" \"$$turn_secret\" \"$${GOYLORD_TURN_HOST}\" \"$${GOYLORD_TURN_PORT}\" \"$$turn_secret\" > /run/goylord-turn/mediamtx.yml; chmod 0444 /run/goylord-turn/secret /run/goylord-turn/mediamtx.yml"]
+    environment:
+      GOYLORD_TURN_HOST: ${GOYLORD_TURN_HOST:-127.0.0.1}
+      GOYLORD_TURN_PORT: ${GOYLORD_TURN_PORT:-3478}
+    volumes:
+      - goylord-turn-secret:/run/goylord-turn
+    restart: "no"
+
+  coturn:
+    image: coturn/coturn:4.14.0-r0-alpine
+    container_name: goylord-coturn
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "49160-49200:49160-49200/udp"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        secret="$$(cat /run/goylord-turn/secret)"
+        external=""
+        if [ -n "$${GOYLORD_TURN_EXTERNAL_IP:-}" ]; then external="--external-ip=$${GOYLORD_TURN_EXTERNAL_IP}"; fi
+        exec turnserver --fingerprint --use-auth-secret --static-auth-secret="$$secret" --realm="$${GOYLORD_TURN_REALM:-goylord}" --listening-port=3478 --min-port=49160 --max-port=49200 --no-tls --no-dtls --no-multicast-peers --log-file=stdout $$external
+    environment:
+      GOYLORD_TURN_REALM: ${GOYLORD_TURN_REALM:-goylord}
+      GOYLORD_TURN_EXTERNAL_IP: ${GOYLORD_TURN_EXTERNAL_IP:-127.0.0.1}
+    volumes:
+      - goylord-turn-secret:/run/goylord-turn:ro
+    depends_on:
+      turn-secret-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
   mediamtx:
     image: bluenviron/mediamtx:latest
     container_name: goylord-mediamtx
-    ports:
-      - "8889:8889"
-      - "8189:8189/tcp"
-      - "8189:8189/udp"
     restart: unless-stopped
+    ports:
+      # WHIP/WHEP signaling only reached by the Bun container internally,
+      # so we don't publish 8889. ICE UDP/TCP must be reachable from the
+      # outside world (browser + agent), so publish 8189.
+      - "8189:8189/udp"
+      - "8189:8189/tcp"
     environment:
       # Disable every protocol except WebRTC. The Goylord server proxies all
-      # WHIP/WHEP signaling and enforces auth itself, so MediaMTX doesn't
-      # need RTSP/RTMP/HLS/SRT listeners.
+      # WHIP/WHEP signaling and enforces auth itself.
       MTX_RTSP: "no"
       MTX_RTMP: "no"
       MTX_HLS: "no"
       MTX_SRT: "no"
-      # ICE on fixed ports so the compose / host firewall has a single target.
+      # Fixed ICE ports (matched by the port-publish above).
       MTX_WEBRTCLOCALUDPADDRESS: ":8189"
       MTX_WEBRTCLOCALTCPADDRESS: ":8189"
-      # Keep the real-time packet queue bounded and use an MTU that remains
-      # safe across common VPN, IPv6, and tunneled network paths.
-      MTX_WRITEQUEUESIZE: ${GOYLORD_MEDIAMTX_WRITE_QUEUE_SIZE:-128}
-      MTX_UDPMAXPAYLOADSIZE: ${GOYLORD_MEDIAMTX_UDP_MAX_PAYLOAD_SIZE:-1200}
-      # Leave blank to let MediaMTX advertise detected interfaces. Public-NAT
-      # deployments must set this to their public IP/DNS; LAN deployments can
-      # include both LAN and public addresses, for example:
-      #   GOYLORD_WEBRTC_ADDITIONAL_HOSTS=192.168.1.42,stream.example.com
-      MTX_WEBRTCADDITIONALHOSTS: ${GOYLORD_WEBRTC_ADDITIONAL_HOSTS:-}
+      # Advertise 127.0.0.1 as an ICE candidate so browsers on the docker
+      # host can reach MediaMTX through the published port. For viewers on
+      # a different machine, override with the host's LAN/public IP, e.g.:
+      #   GOYLORD_WEBRTC_ADDITIONAL_HOSTS=127.0.0.1,192.168.1.42
+      MTX_WEBRTCADDITIONALHOSTS: ${GOYLORD_WEBRTC_ADDITIONAL_HOSTS:-127.0.0.1}
+    volumes:
+      - goylord-turn-secret:/run/goylord-turn:ro
+    depends_on:
+      turn-secret-init:
+        condition: service_completed_successfully
 
 volumes:
   goylord-data:
   goylord-certs:
   goylord-client-build-cache:
   goylord-plugins:
+  goylord-turn-secret:
