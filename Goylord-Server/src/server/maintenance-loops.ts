@@ -5,7 +5,7 @@ import type { ClientInfo } from "../types";
 import { pruneStaleClients } from "./stale-prune";
 
 type StartMaintenanceParams = {
-  getClients: () => Map<string, ClientInfo>;
+  getClients: () => ReadonlyMap<string, ClientInfo>;
   setOnlineState: (id: string, online: boolean) => void;
   deleteClient: (id: string) => void;
   staleMs: number;

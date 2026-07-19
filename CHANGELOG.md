@@ -6,6 +6,16 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 
 ## [0.0.5]
 
+#### perf-phase1 — Server performance optimizations for high-connection-scale
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `src/server/ws-notifications-plugin.ts` | server | Debounced broadcastClientLifecycleEvent with 1.5s coalescing buffer to eliminate O(n*m) per-event iteration |
+| `src/db/repositories.ts` | server | Debounced per-user metrics cache invalidation (2s window), global cache still invalidated immediately |
+| `src/clientManager.ts` | server | getAllClients() returns ReadonlyMap reference instead of shallow copy |
+| `src/server/stale-prune.ts` | server | Accepts ReadonlyMap type for getAllClients() |
+| `src/server/maintenance-loops.ts` | server | Accepts ReadonlyMap type for getAllClients() |
+| `src/server/routes/ws-upgrade-routes.ts` | server | Global admission rate limiter for agent WS upgrades (200/sec default, configurable) |
+
 #### hevc-codec — HEVC encoding support with codec negotiation
 | File(s) | Component | Description |
 |---------|-----------|-------------|

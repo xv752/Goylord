@@ -18,8 +18,8 @@ export function hasClient(id: string): boolean {
   return clients.has(id);
 }
 
-export function getAllClients(): Map<string, ClientInfo> {
-  return new Map(clients);
+export function getAllClients(): ReadonlyMap<string, ClientInfo> {
+  return clients;
 }
 
 export function getClientCount(): number {

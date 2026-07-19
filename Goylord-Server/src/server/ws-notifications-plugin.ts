@@ -90,6 +90,79 @@ type CreateDeps = {
   ) => void;
 };
 
+const LIFECYCLE_FLUSH_MS = 1500;
+let lifecycleFlushTimer: ReturnType<typeof setTimeout> | null = null;
+const lifecycleEventBuffer: Array<{
+  event: "client_online" | "client_offline" | "client_purgatory";
+  info: { id: string; host?: string; user?: string; os?: string; ip?: string; country?: string };
+}> = [];
+
+function flushLifecycleEvents(deps: CreateDeps) {
+  const drained = lifecycleEventBuffer.splice(0, lifecycleEventBuffer.length);
+  if (drained.length === 0) return;
+
+  const batchesBySession = new Map<ServerWebSocket<SocketData>, unknown[]>();
+  for (const session of sessionManager.getAllNotificationSessions().values()) {
+    const sRole = session.userRole ?? session.viewer.data.userRole ?? "";
+    const sUserId = session.userId ?? session.viewer.data.userId;
+    const items: unknown[] = [];
+    for (const { event, info } of drained) {
+      if (event === "client_purgatory") {
+        if (sRole === "admin") {
+        } else if (sRole === "operator") {
+          if (sUserId === undefined || !deps.isClientOwnedByUser(sUserId, info.id)) continue;
+        } else {
+          continue;
+        }
+      } else {
+        if (sRole !== "admin") {
+          if (sUserId === undefined || !deps.canUserAccessClient(sUserId, sRole, info.id)) continue;
+        }
+      }
+      items.push({ type: "client_event", event, clientId: info.id, host: info.host, user: info.user, os: info.os, ip: info.ip, country: info.country, ts: Date.now() });
+    }
+    if (items.length > 0) batchesBySession.set(session.viewer, items);
+  }
+
+  for (const [viewer, items] of batchesBySession) {
+    if (items.length === 1) {
+      safeSendViewer(viewer, items[0]);
+    } else {
+      safeSendViewer(viewer, { type: "client_events_batch", events: items });
+    }
+  }
+
+  const eventGroups = new Map<string, { event: typeof drained[0]["event"]; infos: typeof drained[0]["info"][] }>();
+  for (const entry of drained) {
+    const key = entry.event;
+    if (!eventGroups.has(key)) eventGroups.set(key, { event: entry.event, infos: [] });
+    eventGroups.get(key)!.infos.push(entry.info);
+  }
+
+  for (const [, group] of eventGroups) {
+    const { event, infos } = group;
+    const lastInfo = infos[infos.length - 1];
+    const externalTargets = deps.getDeliveryTargetsForClientEvent(event, lastInfo.id);
+    const pushEnabledByUser = new Map(externalTargets.map((t) => [t.userId, t.clientEventPush]));
+
+    deliverWebPushClientEvent(
+      event,
+      lastInfo,
+      deps.canUserAccessClient,
+      deps.getUserRole,
+      (userId) => {
+        const enabled = pushEnabledByUser.get(userId);
+        return enabled !== undefined ? enabled : true;
+      },
+      deps.isClientOwnedByUser,
+    ).catch((err) => logger.warn("[notify] web push client event delivery failed", err));
+
+    deliverClientEventToExternalChannels(event, lastInfo, externalTargets).catch((err) =>
+      logger.warn("[notify] external channel client event delivery failed", err),
+    );
+  }
+}
+
 function safeSendViewer(ws: ServerWebSocket<SocketData>, payload: unknown) {
   try {
     ws.send(msgpackEncode(payload));
@@ -503,47 +576,13 @@ export function createNotificationPluginHandlers(deps: CreateDeps) {
       if (deps.isClientNotificationsMuted(info.id)) {
         return;
       }
-      const item = { type: "client_event", event, clientId: info.id, host: info.host, user: info.user, os: info.os, ip: info.ip, country: info.country, ts: Date.now() };
-      for (const session of sessionManager.getAllNotificationSessions().values()) {
-        const sRole = session.userRole ?? session.viewer.data.userRole ?? "";
-        const sUserId = session.userId ?? session.viewer.data.userId;
-        if (event === "client_purgatory") {
-          if (sRole === "admin") {
-          } else if (sRole === "operator") {
-            if (sUserId === undefined || !deps.isClientOwnedByUser(sUserId, info.id)) {
-              continue;
-            }
-          } else {
-            continue;
-          }
-        } else {
-          if (sRole !== "admin") {
-            if (sUserId === undefined || !deps.canUserAccessClient(sUserId, sRole, info.id)) {
-              continue;
-            }
-          }
-        }
-        safeSendViewer(session.viewer, item);
+      lifecycleEventBuffer.push({ event, info });
+      if (!lifecycleFlushTimer) {
+        lifecycleFlushTimer = setTimeout(() => {
+          lifecycleFlushTimer = null;
+          flushLifecycleEvents(deps);
+        }, LIFECYCLE_FLUSH_MS);
       }
-
-      const externalTargets = deps.getDeliveryTargetsForClientEvent(event, info.id);
-      const pushEnabledByUser = new Map(externalTargets.map((t) => [t.userId, t.clientEventPush]));
-
-      deliverWebPushClientEvent(
-        event,
-        info,
-        deps.canUserAccessClient,
-        deps.getUserRole,
-        (userId) => {
-          const enabled = pushEnabledByUser.get(userId);
-          return enabled !== undefined ? enabled : true;
-        },
-        deps.isClientOwnedByUser,
-      ).catch((err) => logger.warn("[notify] web push client event delivery failed", err));
-
-      deliverClientEventToExternalChannels(event, info, externalTargets).catch((err) =>
-        logger.warn("[notify] external channel client event delivery failed", err),
-      );
     },
 
     markPluginLoaded,

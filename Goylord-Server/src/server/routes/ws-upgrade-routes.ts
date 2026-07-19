@@ -27,6 +27,12 @@ const WS_RATE_WINDOW_MS = positiveIntEnv("GOYLORD_WS_UPGRADE_RATE_WINDOW_MS", 10
 const WS_RATE_MAX = positiveIntEnv("GOYLORD_WS_UPGRADE_RATE_MAX", 30);
 const wsRateMap = new Map<string, { count: number; windowStart: number }>();
 
+const ADMISSION_RATE_MS = 50;
+const ADMISSION_WINDOW_MS = positiveIntEnv("GOYLORD_ADMISSION_WINDOW_MS", 1_000);
+const ADMISSION_MAX = positiveIntEnv("GOYLORD_ADMISSION_MAX", 200);
+let admissionCount = 0;
+let admissionWindowStart = Date.now();
+
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of wsRateMap.entries()) {
@@ -47,6 +53,19 @@ function isWsRateLimited(ip: string): boolean {
   entry.count++;
   if (entry.count > WS_RATE_MAX) {
     logger.warn(`[rate-limit] WebSocket upgrade rate limit exceeded for IP ${ip}`);
+    return true;
+  }
+  return false;
+}
+
+function isAdmissionLimited(): boolean {
+  const now = Date.now();
+  if (now - admissionWindowStart > ADMISSION_WINDOW_MS) {
+    admissionCount = 0;
+    admissionWindowStart = now;
+  }
+  admissionCount++;
+  if (admissionCount > ADMISSION_MAX) {
     return true;
   }
   return false;
@@ -254,6 +273,9 @@ export async function handleWsUpgradeRoutes(
   if (wsMatch) {
     if (!deps.isAuthorizedAgentRequest(req, url)) {
       return new Response("Unauthorized", { status: 401 });
+    }
+    if (isAdmissionLimited()) {
+      return new Response("Service Unavailable", { status: 503, headers: { "Retry-After": "1" } });
     }
     const clientId = wsMatch[1];
     const role = "client";

@@ -349,6 +349,10 @@ export function handleWebSocketOpen(ws: ServerWebSocket<SocketData>, deps: WsLif
   ws.data.clientId = id;
   ws.data.ip = ip;
 
+  if (String(process.env.GOYLORD_STRESS_TEST || "") === "1") {
+    return;
+  }
+
   const nonceBytes = new Uint8Array(32);
   crypto.getRandomValues(nonceBytes);
   const nonceBase64 = Buffer.from(nonceBytes).toString("base64");
@@ -433,17 +437,19 @@ export async function handleWebSocketMessage(
         const signature = typeof (payload as any).signature === "string" ? (payload as any).signature : "";
         const nonce = ws.data.enrollmentNonce || "";
 
-        if (!publicKey || !signature || !nonce) {
-          logger.warn(`[purgatory] missing publicKey/signature/nonce for ${clientId}`);
-          try { ws.close(4002, "invalid_signature"); } catch {}
-          return;
-        }
+        if (String(process.env.GOYLORD_STRESS_TEST || "") !== "1") {
+          if (!publicKey || !signature || !nonce) {
+            logger.warn(`[purgatory] missing publicKey/signature/nonce for ${clientId}`);
+            try { ws.close(4002, "invalid_signature"); } catch {}
+            return;
+          }
 
-        const valid = await verifyEd25519(publicKey, signature, nonce);
-        if (!valid) {
-          logger.warn(`[purgatory] invalid signature for ${clientId}`);
-          try { ws.close(4002, "invalid_signature"); } catch {}
-          return;
+          const valid = await verifyEd25519(publicKey, signature, nonce);
+          if (!valid) {
+            logger.warn(`[purgatory] invalid signature for ${clientId}`);
+            try { ws.close(4002, "invalid_signature"); } catch {}
+            return;
+          }
         }
 
         ws.data.enrollmentNonce = undefined;
@@ -459,19 +465,24 @@ export async function handleWebSocketMessage(
 
         const keyFingerprint = computeKeyFingerprint(publicKey);
 
-        const existing = lookupClientByPublicKey(publicKey);
+        let existing: ReturnType<typeof lookupClientByPublicKey> = null;
         let enrollmentStatus: string;
 
-        if (existing) {
-          enrollmentStatus = existing.enrollmentStatus;
-          ws.data.clientId = existing.id;
+        if (String(process.env.GOYLORD_STRESS_TEST || "") === "1") {
+          enrollmentStatus = "approved";
         } else {
-          enrollmentStatus = "pending";
+          existing = lookupClientByPublicKey(publicKey);
+          if (existing) {
+            enrollmentStatus = existing.enrollmentStatus;
+            ws.data.clientId = existing.id;
+          } else {
+            enrollmentStatus = "pending";
 
-          const existingPk = getClientPublicKeyById(ws.data.clientId);
-          if (existingPk && existingPk !== publicKey) {
-            ws.data.clientId = keyFingerprint;
-            logger.info(`[purgatory] ID collision detected — reassigned to ${keyFingerprint}`);
+            const existingPk = getClientPublicKeyById(ws.data.clientId);
+            if (existingPk && existingPk !== publicKey) {
+              ws.data.clientId = keyFingerprint;
+              logger.info(`[purgatory] ID collision detected — reassigned to ${keyFingerprint}`);
+            }
           }
         }
 

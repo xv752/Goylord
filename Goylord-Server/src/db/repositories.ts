@@ -975,10 +975,15 @@ export type ClientMetricsSummary = {
 const CLIENT_METRICS_SUMMARY_TTL_MS = 4_000;
 let clientMetricsSummaryCache: { expiresAt: number; summary: ClientMetricsSummary } | null = null;
 const userClientMetricsSummaryCache = new Map<number, { expiresAt: number; summary: ClientMetricsSummary }>();
+let metricsCacheDirtyTimer: ReturnType<typeof setTimeout> | null = null;
 
 function invalidateClientMetricsSummaryCache() {
   clientMetricsSummaryCache = null;
-  userClientMetricsSummaryCache.clear();
+  if (metricsCacheDirtyTimer) return;
+  metricsCacheDirtyTimer = setTimeout(() => {
+    metricsCacheDirtyTimer = null;
+    userClientMetricsSummaryCache.clear();
+  }, 2000);
 }
 
 function cloneClientMetricsSummary(summary: ClientMetricsSummary): ClientMetricsSummary {

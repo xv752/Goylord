@@ -2,7 +2,7 @@ import { logger } from "../logger";
 import type { ClientInfo } from "../types";
 
 type PruneStaleClientsParams = {
-  clients: Map<string, ClientInfo>;
+  clients: ReadonlyMap<string, ClientInfo>;
   staleMs: number;
   pruneBatch: number;
   setOnlineState: (id: string, online: boolean) => void;
