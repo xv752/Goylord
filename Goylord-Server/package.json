@@ -16,7 +16,11 @@
     "watch:css": "tailwindcss -i ./src/styles.css -o ./public/assets/tailwind.css --watch",
     "minify": "bun run scripts/minify-public.ts",
     "bench:client-db": "bun run scripts/client-db-stress.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build",
+    "preview:frontend": "cd frontend && npm run preview",
+    "typecheck:frontend": "cd frontend && npm run typecheck"
   },
   "dependencies": {
     "@hotwired/stimulus": "^3.2.2",

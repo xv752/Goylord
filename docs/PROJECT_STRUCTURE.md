@@ -38,6 +38,20 @@ Goylord/
 │       └── wire/                    # Binary protocol (msgpack, DesktopStreamStats)
 ├── Goylord-Desktop/                # Tauri 2 desktop app — native operator interface
 ├── Goylord-Server/                 # TypeScript/Bun server — web panel + API
+│   ├── frontend/                   # Vue 3 SPA (Vite + TypeScript + Pinia + Tailwind)
+│   │   ├── src/
+│   │   │   ├── main.ts             # App entry
+│   │   │   ├── App.vue             # Root component
+│   │   │   ├── router/index.ts     # Vue Router (auth guards, role-based access)
+│   │   │   ├── stores/             # Pinia stores (auth, ui)
+│   │   │   ├── api/                # Typed API layer (client.ts, types.ts)
+│   │   │   ├── composables/        # Reusable logic (useWebSocket, useMsgpack)
+│   │   │   ├── components/         # Layout (AppLayout, Sidebar) + UI (Toast, Modal)
+│   │   │   ├── views/              # 27 page components (Dashboard, Console, RD, etc.)
+│   │   │   └── lib/                # Utilities (format.ts, constants.ts)
+│   │   ├── vite.config.ts          # Vite config (base /app/, proxy, build)
+│   │   ├── tsconfig.json
+│   │   └── package.json
 │   ├── src/
 │   │   ├── paths.ts                 # Simplified path resolution
 │   │   ├── db/user-schema.ts        # User DB migrations (incl. 015: onboarding_completed_at)
@@ -96,7 +110,9 @@ Goylord/
 
 ## SPA Soft-Navigation System
 
-The frontend uses a custom SPA router (`soft-nav.js`) that intercepts link clicks, fetches the target page's HTML, and replaces the body content without a full page reload. Key details:
+> **Migration in progress:** The frontend is being migrated from vanilla JS to Vue 3 (`Goylord-Server/frontend/`). During migration, both frontends coexist: old pages at `/`, Vue SPA at `/app/*`. See `Frontend_Migration.md` for full plan.
+
+The original frontend uses a custom SPA router (`soft-nav.js`) that intercepts link clicks, fetches the target page's HTML, and replaces the body content without a full page reload. Key details:
 
 - `persistentIds` preserved across navigations: `top-nav`, `sb-mobile-bar`, `sb-backdrop`, `nav-reveal-btn`, `chat-bubble`, `chat-panel`, `cert-trust-banner`, `command-menu`, `image-modal`
 - Module scripts re-execute as new instances (different `?softNav=N` URL)

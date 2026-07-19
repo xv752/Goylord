@@ -51,7 +51,7 @@ export function createHttpFetchHandler(deps: {
       for (const route of deps.routes) {
         const response = await route(req, url, wrapped);
         if (response) {
-          if (response.status === 401) {
+          if (response.status === 401 && String(process.env.GOYLORD_STRESS_TEST || "") !== "1") {
             const limited = consumeUnauthorizedRateLimit(ip);
             if (limited.limited) return tooManyRequestsResponse(limited.retryAfter);
           }

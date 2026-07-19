@@ -265,7 +265,8 @@ export async function handleWsUpgradeRoutes(
   deps: WsUpgradeDeps,
 ): Promise<Response | null> {
   const ip = getRequestIp(req, server);
-  if (isWsRateLimited(ip)) {
+  const stressMode = String(process.env.GOYLORD_STRESS_TEST || "") === "1";
+  if (!stressMode && isWsRateLimited(ip)) {
     return new Response("Too Many Requests", { status: 429 });
   }
 
@@ -274,7 +275,7 @@ export async function handleWsUpgradeRoutes(
     if (!deps.isAuthorizedAgentRequest(req, url)) {
       return new Response("Unauthorized", { status: 401 });
     }
-    if (isAdmissionLimited()) {
+    if (!stressMode && isAdmissionLimited()) {
       return new Response("Service Unavailable", { status: 503, headers: { "Retry-After": "1" } });
     }
     const clientId = wsMatch[1];

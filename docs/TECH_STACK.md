@@ -34,7 +34,7 @@
 | msgpackr | High-performance msgpack |
 | uuid | UUID generation |
 
-### Frontend
+### Frontend (Legacy — vanilla JS, being migrated to Vue 3)
 | Package | Purpose |
 |---|---|
 | Tailwind CSS 4 | Utility-first CSS |
@@ -47,6 +47,24 @@
 | Gridstack | Dashboard widget layout |
 | anime.js | Animations |
 | CodeMirror | Alternative code editor |
+
+### Frontend (Vue 3 — `Goylord-Server/frontend/`)
+| Package | Purpose |
+|---|---|
+| Vue 3.5 | UI framework (Composition API) |
+| Vue Router 4 | Client-side routing (replaces Turbo Drive) |
+| Pinia 3 | State management (replaces window globals) |
+| Vite 6 | Build tool + dev server |
+| Tailwind CSS 4 | Utility-first CSS (via @tailwindcss/vite) |
+| @vueuse/core | Vue composition utilities |
+| chart.js + vue-chartjs | Charts (wrapper) |
+| @xterm/xterm | Terminal emulator |
+| @msgpack/msgpack | Binary WebSocket encoding |
+| fuse.js | Fuzzy search |
+| gridstack | Dashboard widgets |
+| cytoscape | Client relationship graphs |
+| Font Awesome 6 | Icons (npm) |
+| Inter / JetBrains Mono | Fonts (npm) |
 
 ### Client (Goylord-Client)
 | Package | Purpose |

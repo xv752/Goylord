@@ -109,6 +109,7 @@ Goylord-Server/
 │   ├── settings.html                # Settings page
 │   ├── purgatory.html               # Enrollment/purgatory page
 │   ├── remotedesktop.html           # Remote desktop page (HUD, network stats, bitrate selector)
+│   ├── dist/                        # Vue 3 SPA build output (served at /app/*)
 │   └── assets/                      # Frontend JS/CSS/images (80+ files)
 │       ├── soft-nav.js              # SPA soft-navigation router
 │       ├── main.js                  # Dashboard logic (1200+ lines)
@@ -173,8 +174,20 @@ Goylord-Server/
 
 ```bash
 cd Goylord-Server
-bun run dev          # Development (with file watching)
-bun run build        # Production build
-bun run typecheck    # TypeScript type checking
-bun test             # Run tests (637 pass, 5 fail)
+bun run dev              # Development (with file watching)
+bun run build            # Production build
+bun run typecheck        # TypeScript type checking
+bun test                 # Run tests (637 pass, 5 fail)
+
+# Vue 3 frontend (separate terminal)
+cd frontend
+npm install              # First time only
+npm run dev              # Vite dev server on :5174
+npm run build            # Build to ../public/dist/
+npm run typecheck        # Frontend type checking
+
+# Quick commands from server root
+bun run dev:frontend     # Vite dev server
+bun run build:frontend   # Build Vue frontend
+bun run typecheck:frontend
 ```

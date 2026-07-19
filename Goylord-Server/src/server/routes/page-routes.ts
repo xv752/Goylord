@@ -145,6 +145,24 @@ export async function handlePageRoutes(
 ): Promise<Response | null> {
   if (req.method !== "GET") return null;
 
+  // ---- Vue 3 SPA (/app/*) ----
+  if (url.pathname.startsWith("/app")) {
+    // Serve static assets from dist/ (JS, CSS, fonts)
+    const distPath = url.pathname.replace(/^\/app\//, "/");
+    if (distPath !== "/" && distPath !== "/index.html") {
+      const assetFile = Bun.file(`${deps.PUBLIC_ROOT}/dist${distPath}`);
+      if (await assetFile.exists()) {
+        return new Response(assetFile, { headers: deps.secureHeaders(deps.mimeType(distPath)) });
+      }
+    }
+    // SPA fallback — serve index.html for all /app/* routes
+    const indexPath = `${deps.PUBLIC_ROOT}/dist/index.html`;
+    const indexFile = Bun.file(indexPath);
+    if (await indexFile.exists()) {
+      return new Response(indexFile, { headers: deps.secureHeaders("text/html; charset=utf-8") });
+    }
+  }
+
   const canAccessClientPage = (userId: number, role: UserRole, clientId: string): boolean => {
     if (!clientId) return false;
     return canUserAccessClient(userId, role, clientId);

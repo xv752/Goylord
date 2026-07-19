@@ -162,3 +162,5 @@ plink/*
 *.cachefile
 *.VC.db
 *.VC.VC.opendb
+Frontend_Migration.md
+suggestions.txt

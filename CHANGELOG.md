@@ -6,6 +6,92 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 
 ## [0.0.5]
 
+#### vue3-migration-phase0 — Vue 3 frontend scaffolding + File Share view
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/` (21 new files) | frontend | Vue 3 + Vite + TypeScript + Pinia + Vue Router + Tailwind CSS v4 scaffold with full project structure |
+| `frontend/src/views/FileShareView.vue` | frontend | Complete Vue port of file share page (upload, list, edit, delete, copy link) |
+| `frontend/src/composables/useWebSocket.ts` | frontend | Unified WebSocket composable with auto-reconnect, binary msgpack decode |
+| `frontend/src/api/client.ts` | frontend | Typed API layer for auth, file share, and client endpoints |
+| `frontend/src/stores/auth.ts` | frontend | Pinia auth store with login/logout/fetchUser, role-based computed properties |
+| `frontend/src/components/layout/Sidebar.vue` | frontend | Role-based nav sidebar with group headers and logout |
+| `src/server/routes/page-routes.ts` | server | Added `/app/*` catch-all to serve Vue SPA `index.html` for incremental migration |
+| `package.json` | server | Added `dev:frontend`, `build:frontend`, `preview:frontend`, `typecheck:frontend` scripts |
+
+#### vue3-phase1 — Full view implementations + File Share removed
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/DashboardView.vue` | frontend | Full client dashboard: search, filters, 7 sort modes, 3 layouts (cards/rows/table), pagination, WS live updates, action buttons |
+| `frontend/src/views/ConsoleView.vue` | frontend | xterm-style terminal with WS connection skeleton |
+| `frontend/src/views/RemoteDesktopView.vue` | frontend | JPEG frame canvas rendering, mouse input, FPS/latency HUD |
+| `frontend/src/views/BackstageView.vue` | frontend | HVNC viewer skeleton with WS |
+| `frontend/src/views/FileBrowserView.vue` | frontend | Breadcrumb nav, file table, directory navigation |
+| `frontend/src/views/ProcessesView.vue` | frontend | Process table with search, kill, memory formatting |
+| `frontend/src/views/KeyloggerView.vue` | frontend | Window list + keystroke log with search |
+| `frontend/src/views/WebcamView.vue` | frontend | Video canvas with resolution selector |
+| `frontend/src/views/VoiceView.vue` | frontend | Audio visualization skeleton |
+| `frontend/src/views/BuildView.vue` | frontend | Build form + plugin cards + streaming output console |
+| `frontend/src/views/SettingsView.vue` | frontend | 6-tab settings (General, Security, TLS, OIDC, Appearance, Registration) |
+| `frontend/src/views/UsersView.vue` | frontend | User table, create form, role toggle, delete |
+| `frontend/src/views/ScriptsView.vue` | frontend | Sidebar script list, code editor, client exec |
+| `frontend/src/views/MetricsView.vue` | frontend | Stat cards, bar chart, server info |
+| `frontend/src/views/GraphView.vue` | frontend | SVG-based graph with node details panel |
+| `frontend/src/views/ScreenshotsView.vue` | frontend | Thumbnail grid, lightbox expand, pagination |
+| `frontend/src/views/NotificationsView.vue` | frontend | Notification list with read/unread, type filter |
+| `frontend/src/views/PurgatoryView.vue` | frontend | Pending agents with approve/reject/approve all |
+| `frontend/src/views/DeployView.vue` | frontend | File upload, client selection, deploy execution |
+| `frontend/src/views/PluginsView.vue` | frontend | Plugin list with toggle switches, install/uninstall |
+| `frontend/src/views/LogsView.vue` | frontend | Audit log table with search, date range, pagination |
+| `frontend/src/views/Socks5View.vue` | frontend | Proxy table, add modal, auto-refresh, stop |
+| `frontend/src/views/SolPublishView.vue` | frontend | Server URL + RPC endpoint form |
+| `frontend/src/views/WinREView.vue` | frontend | Client checkboxes, install/uninstall, file upload |
+| `frontend/src/views/UserClientAccessView.vue` | frontend | User selector, scope radio, rule list add/remove |
+| `frontend/src/views/ChangePasswordView.vue` | frontend | Standalone password change form |
+| `frontend/src/views/FileShareView.vue` | frontend | **DELETED** — removed per user request |
+| `frontend/src/lib/constants.ts` | frontend | Removed FileShare nav item, made CLIENT_PAGE_MAP requires optional |
+| `frontend/src/api/client.ts` | frontend | Full typed API layer for all endpoints |
+| `frontend/src/api/types.ts` | frontend | Full TypeScript interfaces for all data models |
+| `frontend/src/router/index.ts` | frontend | All routes with auth guards and client sub-pages |
+
+#### vue3-full-implementation — Complete frontend rewrite with real API/WS integration
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/lib/api.ts` (new) | frontend | Generic fetch wrapper (api.get/post/patch/put/delete) for simpler views |
+| `frontend/src/api/types.ts` | frontend | Complete types: all API models, WS message types, file browser, enrollment, SOCKS5 |
+| `frontend/src/api/client.ts` | frontend | Typed fetch wrappers for ALL server endpoints |
+| `frontend/src/stores/auth.ts` | frontend | Result-driven login ({ok, error}), fetchUser, logout, role computeds |
+| `frontend/src/stores/ui.ts` | frontend | Typed toast notification system |
+| `frontend/src/lib/format.ts` | frontend | formatBytes, formatDate (auto ms/s), timeAgo, escapeHtml, formatMs |
+| `frontend/src/lib/constants.ts` | frontend | NAV_GROUPS with access control, CLIENT_PAGE_MAP |
+| `frontend/src/composables/useWebSocket.ts` | frontend | WS composable with JSON/binary handling, FRM detection, auto-reconnect |
+| `frontend/src/views/LoginView.vue` | frontend | Centered form, error display, loading, result-driven routing |
+| `frontend/src/views/DashboardView.vue` | frontend | useWebSocket, 6 filters, 3 layouts, 8 actions, pagination, real-time WS |
+| `frontend/src/views/ConsoleView.vue` | frontend | Terminal: console_start/input/resize, keyboard capture, ResizeObserver, 80KB scrollback |
+| `frontend/src/views/RemoteDesktopView.vue` | frontend | FRM binary frames (JPEG), canvas rendering, mouse/keyboard, quality selector |
+| `frontend/src/views/BackstageView.vue` | frontend | Same as RD with backstage_ prefixed commands |
+| `frontend/src/views/FileBrowserView.vue` | frontend | Folder tree, breadcrumb, file table, download, mkdir, delete, inline rename |
+| `frontend/src/views/ProcessesView.vue` | frontend | Sortable columns, CPU/memory color coding, search, kill, auto-refresh |
+| `frontend/src/views/KeyloggerView.vue` | frontend | Log file list, keystroke content, timestamp parsing, search, auto-scroll |
+| `frontend/src/views/WebcamView.vue` | frontend | Device selector, canvas video, FPS counter, start/stop |
+| `frontend/src/views/VoiceView.vue` | frontend | Web Audio API frequency visualization, volume meter, source selector |
+| `frontend/src/views/BuildView.vue` | frontend | Platform/arch form, plugin settings, build output console, history, polling |
+| `frontend/src/views/SettingsView.vue` | frontend | 5-tab (General/Security/TLS/Appearance/Chat), per-tab PATCH, toggles, toasts |
+| `frontend/src/views/UsersView.vue` | frontend | User CRUD table, role/permission editing |
+| `frontend/src/views/ScriptsView.vue` | frontend | Script list + editor pane + execute modal |
+| `frontend/src/views/MetricsView.vue` | frontend | Stat cards, online rate bar, OS groups, client table |
+| `frontend/src/views/GraphView.vue` | frontend | Group cards with bar visualization, client grid |
+| `frontend/src/views/ScreenshotsView.vue` | frontend | Thumbnail grid, lightbox overlay, pagination |
+| `frontend/src/views/NotificationsView.vue` | frontend | Notification list with WebSocket live feed |
+| `frontend/src/views/PurgatoryView.vue` | frontend | Pending agents table, approve/deny, auto-refresh |
+| `frontend/src/views/DeployView.vue` | frontend | Drag-drop upload, client selector, progress bar |
+| `frontend/src/views/PluginsView.vue` | frontend | Plugin list with toggle switches, upload/delete |
+| `frontend/src/views/LogsView.vue` | frontend | Audit log table with search, pagination, auto-refresh |
+| `frontend/src/views/Socks5View.vue` | frontend | Active proxies, create modal, 5s auto-refresh |
+| `frontend/src/views/SolPublishView.vue` | frontend | Simple URL input + publish form |
+| `frontend/src/views/WinREView.vue` | frontend | Client checkboxes, file upload, install/uninstall |
+| `frontend/src/views/UserClientAccessView.vue` | frontend | User selector, scope radios, allowlist/denylist rules |
+| `frontend/src/views/ChangePasswordView.vue` | frontend | Standalone form with redirect on success |
+
 #### perf-phase1 — Server performance optimizations for high-connection-scale
 | File(s) | Component | Description |
 |---------|-----------|-------------|
@@ -283,8 +369,24 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 | Build Plugins | 8 |
 | Infrastructure | 3 |
 
+#### vue3-redesign-dark-rat-panel — Match old UI glassmorphism dark panel aesthetic
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/assets/styles/main.css` | frontend | Complete design system rewrite: `@theme` overrides entire Tailwind slate palette to match old UI colors (`#04070d` bg, `#0a0d14` body, `#0f172a` surfaces). Global component classes: `.btn`, `.btn-primary`, `.btn-danger`, `.input`, `.panel`, `.card`, `.data-table`, `.badge`, `.status-dot`, `.toast`, `.ctx-menu`, `.alert`, `.toggle` |
+| `frontend/src/components/layout/Sidebar.vue` | frontend | 224px glass sidebar: `rgba(2,8,22,0.97)` bg, 9px radius links, indigo active state, collapse to 64px, gradient logo, user avatar |
+| `frontend/src/components/layout/AppLayout.vue` | frontend | Glassmorphism topbar with `backdrop-filter: blur(8px)` |
+| `frontend/src/views/LoginView.vue` | frontend | Glassmorphism login card with gradient background, indigo gradient button |
+| `frontend/src/views/DashboardView.vue` | frontend | Client rows/cards with left group-color strip, status pulse dot, ping color coding, glass context menu |
+| `frontend/src/views/UsersView.vue` | frontend | Refactored to global component classes |
+| `frontend/src/views/LogsView.vue` | frontend | Refactored to global component classes |
+| `frontend/src/views/NotificationsView.vue` | frontend | Refactored to global component classes |
+| `frontend/src/views/PurgatoryView.vue` | frontend | Refactored to global component classes |
+| `frontend/src/views/SettingsView.vue` | frontend | Tab nav with indigo indicator, glass sections, toggle component |
+| `frontend/src/components/ui/Toast.vue` | frontend | Glassmorphism toast with icon badges |
+
 ## Test Results
 
 - **Server:** 637 pass, 5 fail (pre-existing `client-order.test.ts` failures, no regressions)
+- **Vue Frontend:** 9/9 API+SPA tests pass, build succeeds (162KB JS, 73KB CSS, 104 modules)
 - **Go Client:** `go build ./cmd/agent/` — builds clean, no race conditions detected
 - **Build Plugins:** 65 integration checks passed
