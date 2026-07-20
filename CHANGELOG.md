@@ -500,3 +500,19 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 | Critical | 3 |
 | High | 2 |
 | Medium | 2 |
+
+#### vue3-session3 — RemoteDesktop/Backstage full controls, Settings Health/MFA/Profiler fixes, CSP QR fix
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/RemoteDesktopView.vue` | frontend | Complete rewrite with full toolbar: mouse/keyboard toggles, display selector, quality slider, start/stop, screenshot, fullscreen, reconnect; FRM/JPEG rendering, stats HUD |
+| `frontend/src/views/BackstageView.vue` | frontend | Complete rewrite with full toolbar: mouse/keyboard/UIA toggles, display selector, quality slider, browser launchers (6 browsers), start/stop, fullscreen, reconnect; FRM/JPEG rendering |
+| `frontend/src/views/SettingsView.vue` | frontend | Fixed health endpoint (/api/settings/health), profiler (POST /api/settings/profile with duration), MFA disable (password+code modal), MFA QR (server qrSvg) |
+| `frontend/src/__tests__/SettingsView.test.ts` | tests | Updated nav count 13→15, added Thumbnails + Input Archive label assertions |
+| `src/server/http-security.ts` | server | Added https://api.qrserver.com to CSP img-src for MFA QR codes |
+| `Issues.md` | docs | NEW: 15 known issues documented across Critical/High/Medium severity |
+
+| Severity | Count |
+|----------|-------|
+| Critical | 2 |
+| High | 3 |
+| Medium | 1 |

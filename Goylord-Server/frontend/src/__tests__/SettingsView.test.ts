@@ -50,7 +50,7 @@ describe("SettingsView", () => {
     const wrapper = mountSettings();
     await flushPromises();
     const navBtns = wrapper.findAll(".settings-nav");
-    expect(navBtns.length).toBe(13);
+    expect(navBtns.length).toBe(15);
     wrapper.unmount();
   });
 
@@ -186,6 +186,8 @@ describe("SettingsView", () => {
     expect(html).toContain("OIDC");
     expect(html).toContain("Appearance");
     expect(html).toContain("Chat");
+    expect(html).toContain("Thumbnails");
+    expect(html).toContain("Input Archive");
     expect(html).toContain("Registration");
     expect(html).toContain("Build Limits");
     expect(html).toContain("Export");

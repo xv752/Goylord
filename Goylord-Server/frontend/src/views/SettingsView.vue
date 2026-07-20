@@ -12,6 +12,10 @@ const showMfaSetup = ref(false)
 const mfaCode = ref('')
 const mfaUri = ref('')
 const mfaSecret = ref('')
+const mfaQrSvg = ref('')
+const mfaDisablePassword = ref('')
+const mfaDisableCode = ref('')
+const showMfaDisable = ref(false)
 const showTlsInfo = ref(false)
 const showOidcModal = ref(false)
 const showExportModal = ref(false)
@@ -19,6 +23,7 @@ const exportData = ref('')
 const healthData = ref<any>(null)
 const profilerData = ref<any>(null)
 const profilerRunning = ref(false)
+const profilerDuration = ref(3)
 const userId = ref(0)
 
 const profile = reactive({ username: '', currentPassword: '', newPassword: '', confirmPassword: '' })
@@ -166,7 +171,7 @@ async function changePassword() {
 async function setupMfa() {
   try {
     const res = await api.post<{ secret: string; otpauthUrl: string; qrSvg: string }>('/api/mfa/setup')
-    mfaUri.value = res.otpauthUrl; mfaSecret.value = res.secret; showMfaSetup.value = true
+    mfaUri.value = res.otpauthUrl; mfaSecret.value = res.secret; mfaQrSvg.value = res.qrSvg || ''; showMfaSetup.value = true
   } catch (e: any) { error.value = e.message }
 }
 async function verifyMfa() {
@@ -178,8 +183,9 @@ async function verifyMfa() {
   } catch (e: any) { error.value = e.message } finally { saving.value = false }
 }
 async function disableMfa() {
-  if (!confirm('Disable MFA?')) return
-  try { await api.post('/api/mfa/disable', { currentPassword: '', code: '' }); mfa.enabled = false; success.value = 'MFA disabled' } catch (e: any) { error.value = e.message }
+  if (!mfaDisablePassword.value || !mfaDisableCode.value) { error.value = 'Password and code are required'; return }
+  saving.value = true; error.value = ''
+  try { await api.post('/api/mfa/disable', { currentPassword: mfaDisablePassword.value, code: mfaDisableCode.value }); mfa.enabled = false; showMfaDisable.value = false; mfaDisablePassword.value = ''; mfaDisableCode.value = ''; success.value = 'MFA disabled' } catch (e: any) { error.value = e.message } finally { saving.value = false }
 }
 async function saveSecurity() {
   saving.value = true; error.value = ''
@@ -274,11 +280,15 @@ async function importConfig() {
 }
 async function loadHealth() {
   loading.value = true; error.value = ''
-  try { healthData.value = await api.get('/api/system/health') } catch (e: any) { error.value = e.message } finally { loading.value = false }
+  try { healthData.value = await api.get('/api/settings/health') } catch (e: any) { error.value = e.message } finally { loading.value = false }
+}
+async function forceGC() {
+  saving.value = true; error.value = ''
+  try { const res = await api.post<any>('/api/settings/gc'); success.value = `GC freed ${res?.freedBytes?.toLocaleString() || 'unknown'} bytes` } catch (e: any) { error.value = e.message } finally { saving.value = false }
 }
 async function runProfiler() {
   profilerRunning.value = true; error.value = ''
-  try { profilerData.value = await api.get('/api/system/profiler?duration=3') } catch (e: any) { error.value = e.message } finally { profilerRunning.value = false }
+  try { profilerData.value = await api.post('/api/settings/profile', { duration: profilerDuration.value }) } catch (e: any) { error.value = e.message } finally { profilerRunning.value = false }
 }
 async function saveTls() {
   saving.value = true; error.value = ''
@@ -345,16 +355,30 @@ onMounted(loadAll)
           <div v-if="activeSection === 'mfa'" class="settings-panel">
             <h2 style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:16px">Multi-Factor Authentication</h2>
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-              <button type="button" class="toggle" :class="{active: mfa.enabled}" @click="mfa.enabled ? disableMfa() : setupMfa()"></button>
+              <button type="button" class="toggle" :class="{active: mfa.enabled}" @click="mfa.enabled ? (showMfaDisable = true) : setupMfa()"></button>
               <span style="font-size:13px;color:#cbd5e1">{{ mfa.enabled ? 'MFA is enabled' : 'MFA is disabled' }}</span>
             </div>
             <div v-if="showMfaSetup" style="margin-bottom:16px;padding:16px;background:var(--ui-surface);border:1px solid var(--ui-border);border-radius:10px;max-width:400px">
               <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">Scan this QR code with your authenticator app, then enter the code:</p>
-              <div style="background:white;border-radius:8px;padding:12px;display:inline-block;margin-bottom:10px"><img v-if="mfaUri" :src="`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(mfaUri)}`" style="width:160px;height:160px" /></div>
+              <div v-if="mfaQrSvg" style="background:white;border-radius:8px;padding:12px;display:inline-block;margin-bottom:10px" v-html="mfaQrSvg"></div>
+              <div v-else style="background:white;border-radius:8px;padding:12px;display:inline-block;margin-bottom:10px"><img v-if="mfaUri" :src="`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(mfaUri)}`" style="width:160px;height:160px" /></div>
               <div style="font-size:11px;color:#64748b;margin-bottom:10px">Manual key: <code style="background:#1e293b;padding:2px 6px;border-radius:4px;color:#818cf8">{{ mfaSecret }}</code></div>
+              <div v-if="mfaUri" style="margin-bottom:10px"><a :href="mfaUri" target="_blank" style="font-size:12px;color:#818cf8;text-decoration:underline">Open in authenticator app</a></div>
               <div style="display:flex;gap:8px">
                 <input v-model="mfaCode" placeholder="Enter 6-digit code" class="input" style="width:160px" maxlength="6" />
                 <button @click="verifyMfa" :disabled="saving || mfaCode.length !== 6" class="btn btn-primary btn-sm">Verify</button>
+              </div>
+            </div>
+            <div v-if="showMfaDisable" style="margin-bottom:16px;padding:16px;background:var(--ui-surface);border:1px solid rgba(239,68,68,0.3);border-radius:10px;max-width:400px">
+              <h3 style="font-size:13px;font-weight:600;color:#fca5a5;margin-bottom:10px"><i class="fa-solid fa-triangle-exclamation" style="margin-right:6px"></i>Disable MFA</h3>
+              <p style="font-size:12px;color:#94a3b8;margin-bottom:10px">Enter your password and current TOTP code to disable MFA:</p>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <input v-model="mfaDisablePassword" type="password" placeholder="Current password" class="input" style="width:100%" />
+                <input v-model="mfaDisableCode" placeholder="6-digit TOTP code" class="input" style="width:160px" maxlength="6" />
+                <div style="display:flex;gap:8px">
+                  <button @click="disableMfa" :disabled="saving || !mfaDisablePassword || mfaDisableCode.length !== 6" class="btn btn-danger btn-sm">Disable MFA</button>
+                  <button @click="showMfaDisable = false; mfaDisablePassword = ''; mfaDisableCode = ''" class="btn btn-sm">Cancel</button>
+                </div>
               </div>
             </div>
             <div v-if="mfa.enabled && mfa.backupCodes.length" style="margin-bottom:16px">
@@ -580,11 +604,38 @@ onMounted(loadAll)
           <!-- Health -->
           <div v-if="activeSection === 'health'" class="settings-panel">
             <h2 style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:16px">Server Health</h2>
-            <button @click="loadHealth" :disabled="loading" class="btn btn-primary btn-sm" style="margin-bottom:14px"><i :class="loading ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-heart-pulse'" style="margin-right:6px"></i> Refresh</button>
-            <div v-if="healthData" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
-              <div v-for="(val, key) in healthData" :key="String(key)" class="card" style="padding:12px">
-                <div style="font-size:11px;color:#64748b;text-transform:capitalize;margin-bottom:4px">{{ String(key).replace(/([A-Z])/g, ' $1') }}</div>
-                <div style="font-size:16px;font-weight:600;color:#e2e8f0;font-family:monospace">{{ typeof val === 'number' ? val.toLocaleString() : String(val) }}</div>
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <button @click="loadHealth" :disabled="loading" class="btn btn-primary btn-sm"><i :class="loading ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-heart-pulse'" style="margin-right:6px"></i> Refresh</button>
+              <button @click="forceGC" :disabled="saving" class="btn btn-danger btn-sm"><i :class="saving ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-broom'" style="margin-right:6px"></i> Force GC</button>
+            </div>
+            <div v-if="healthData?.memory" style="margin-bottom:14px">
+              <h3 style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px">Memory</h3>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
+                <div v-for="(val, key) in healthData.memory" :key="String(key)" style="padding:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(51,65,85,0.4);border-radius:8px">
+                  <div style="font-size:10px;color:#64748b;text-transform:capitalize">{{ String(key).replace(/([A-Z])/g, ' $1') }}</div>
+                  <div style="font-size:14px;font-weight:600;color:#e2e8f0;font-family:monospace">{{ typeof val === 'number' ? `${(val / 1048576).toFixed(1)} MB` : String(val) }}</div>
+                </div>
+              </div>
+            </div>
+            <div v-if="healthData?.components" style="margin-bottom:14px">
+              <h3 style="font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:8px">Components</h3>
+              <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">
+                <div style="padding:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(51,65,85,0.4);border-radius:8px">
+                  <div style="font-size:10px;color:#64748b">Clients In-Memory</div>
+                  <div style="font-size:14px;font-weight:600;color:#e2e8f0">{{ healthData.components.clients?.inMemory ?? '-' }}</div>
+                </div>
+                <div style="padding:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(51,65,85,0.4);border-radius:8px">
+                  <div style="font-size:10px;color:#64748b">Clients Online</div>
+                  <div style="font-size:14px;font-weight:600;color:#22c55e">{{ healthData.components.clients?.online ?? '-' }}</div>
+                </div>
+                <div style="padding:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(51,65,85,0.4);border-radius:8px">
+                  <div style="font-size:10px;color:#64748b">DB File Size</div>
+                  <div style="font-size:14px;font-weight:600;color:#e2e8f0">{{ healthData.components.database?.fileSizeBytes ? `${(healthData.components.database.fileSizeBytes / 1048576).toFixed(1)} MB` : '-' }}</div>
+                </div>
+                <div v-if="healthData.uptime" style="padding:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(51,65,85,0.4);border-radius:8px">
+                  <div style="font-size:10px;color:#64748b">Uptime</div>
+                  <div style="font-size:14px;font-weight:600;color:#e2e8f0">{{ `${(healthData.uptime / 3600).toFixed(1)}h` }}</div>
+                </div>
               </div>
             </div>
           </div>
@@ -592,8 +643,12 @@ onMounted(loadAll)
           <!-- Profiler -->
           <div v-if="activeSection === 'profiler'" class="settings-panel">
             <h2 style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:16px">Server Profiler</h2>
-            <p style="font-size:12px;color:#64748b;margin-bottom:12px">Runs a 3-second CPU profile and returns top hot functions.</p>
-            <button @click="runProfiler" :disabled="profilerRunning" class="btn btn-primary btn-sm" style="margin-bottom:14px"><i :class="profilerRunning ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-gauge-high'" style="margin-right:6px"></i> {{ profilerRunning ? 'Profiling...' : 'Run Profile' }}</button>
+            <p style="font-size:12px;color:#64748b;margin-bottom:12px">Runs a CPU profile and returns top hot functions.</p>
+            <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center">
+              <label style="font-size:11px;color:#94a3b8">Duration:</label>
+              <AppSelect v-model="profilerDuration" :options="[{ value: 3, label: '3s' }, { value: 5, label: '5s' }, { value: 10, label: '10s' }, { value: 30, label: '30s' }]" style="width:80px" />
+              <button @click="runProfiler" :disabled="profilerRunning" class="btn btn-primary btn-sm"><i :class="profilerRunning ? 'fa-solid fa-spinner fa-spin' : 'fa-solid fa-gauge-high'" style="margin-right:6px"></i> {{ profilerRunning ? 'Profiling...' : 'Run Profile' }}</button>
+            </div>
             <div v-if="profilerData" style="background:#0f172a;border:1px solid rgba(51,65,85,0.5);border-radius:10px;padding:12px;max-height:400px;overflow-y:auto">
               <pre style="font-size:11px;color:#94a3b8;white-space:pre-wrap;font-family:monospace;margin:0">{{ JSON.stringify(profilerData, null, 2) }}</pre>
             </div>

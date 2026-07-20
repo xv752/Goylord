@@ -2090,3 +2090,36 @@ All 8 critical security/stability fixes confirmed: `crypto/rand` seeding (sessio
 - `Goylord-Server/frontend/src/api/client.ts` — removeClient, dedup fix
 
 **Verification:** 637 pass, 5 fail (pre-existing). Build clean. Frontend builds with xterm.js + msgpack.
+
+---
+
+### Vue3 Session 3 — RemoteDesktop/Backstage full controls, Settings Health/MFA/Profiler fixes, CSP QR fix
+
+**Timestamp:** 2026-07-20 16:50
+
+**Bug:** RemoteDesktop and Backstage views lacked all interactive controls (mouse/keyboard toggles, display selector, quality slider, browser launchers, start/stop, fullscreen, screenshot, reconnect). Settings Health showed 404 (`/api/system/health`), Profiler used wrong endpoint, MFA disable sent empty password/code, CSP blocked QR server image, SettingsView test expected 13 nav items but view had 15.
+
+**Root cause:**
+1. RD/Backstage views were skeleton implementations from phase1 — FRM frame rendering worked but no toolbar controls were implemented
+2. SettingsView used `/api/system/health` (404s) instead of `/api/settings/health`
+3. SettingsView used `GET /api/system/profiler` instead of `POST /api/settings/profile`
+4. SettingsView MFA disable sent empty `{ password: "", code: "" }` — server requires real password + TOTP code
+5. CSP `img-src` didn't include `https://api.qrserver.com` for QR codes
+6. SettingsView nav grew from 13 to 15 sections (added Thumbnails, Input Archive) but test wasn't updated
+
+**Fix:**
+- **RemoteDesktopView.vue:** Complete rewrite with full toolbar — mouse/keyboard toggle buttons, display selector (AppSelect), quality slider (10-100%), start/stop, screenshot (canvas.toBlob), fullscreen (Fullscreen API), reconnect, FRM detection, JPEG canvas rendering, FPS/resolution/latency/bandwidth stats, `desktop_start`/`desktop_stop`/`desktop_set_quality`/`desktop_set_display`/`desktop_displays` commands, mouse move/down/up/wheel + keyboard down/up with canvas coordinate mapping
+- **BackstageView.vue:** Complete rewrite with full toolbar — mouse/keyboard/UIA toggle buttons (send `backstage_enable_*`/`backstage_disable_*` commands), display selector, quality slider, start/stop, fullscreen, reconnect, browser launcher dropdown (Chrome/Firefox/Edge/Opera/Brave/Vivaldi), `backstage_start` with `autoStartExplorer: true`, same FRM/JPEG rendering as RD
+- **SettingsView.vue:** Fixed health endpoint `/api/system/health` → `/api/settings/health`; fixed profiler `GET /api/system/profiler?duration=3` → `POST /api/settings/profile` with configurable duration via AppSelect; fixed MFA disable to require password + TOTP code inputs (added `showMfaDisable` modal with form); MFA QR code now uses server-generated `qrSvg` (SVG inline) instead of external `api.qrserver.com` URL
+- **http-security.ts:** Added `https://api.qrserver.com` to CSP `img-src` for MFA QR codes
+- **SettingsView.test.ts:** Updated nav count assertion from 13 to 15; added "Thumbnails" and "Input Archive" label checks
+
+**Files modified (6 files):**
+- `Goylord-Server/frontend/src/views/RemoteDesktopView.vue` — complete rewrite with full controls
+- `Goylord-Server/frontend/src/views/BackstageView.vue` — complete rewrite with full controls
+- `Goylord-Server/frontend/src/views/SettingsView.vue` — health/MFA/profiler fixes
+- `Goylord-Server/frontend/src/__tests__/SettingsView.test.ts` — nav count 13→15, added labels
+- `Goylord-Server/src/server/http-security.ts` — CSP img-src for QR
+- `Issues.md` — NEW: comprehensive known issues documentation
+
+**Verification:** 637 pass, 5 fail (pre-existing), 45/45 frontend vitest tests pass, clean build
