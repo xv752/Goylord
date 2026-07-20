@@ -1,211 +1,142 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { api } from '../lib/api'
+import AppSelect from '../components/ui/AppSelect.vue'
 
 interface Proxy {
-  id: number
-  clientId: string
-  hostname: string
-  port: number
-  status: string
+  clientId: string; port: number; connections?: number; createdAt?: string
+  host?: string; nickname?: string
 }
 
 interface Client {
-  id: string
-  host: string
-  nickname?: string
-  online: boolean
+  id: string; host: string; nickname?: string; online: boolean
 }
 
 const proxies = ref<Proxy[]>([])
 const clients = ref<Client[]>([])
 const loading = ref(true)
 const showModal = ref(false)
-const stopping = ref<number | null>(null)
 const creating = ref(false)
+const newProxy = ref({ clientId: '', port: 1080 })
 const error = ref('')
 const success = ref('')
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
-const newProxy = ref({ clientId: '', port: 1080 })
-
 async function loadProxies() {
   try {
-    proxies.value = await api.get<Proxy[]>('/api/socks5/proxies')
-  } catch {
-    // silent
-  } finally {
-    loading.value = false
-  }
+    const data = await api.get<{ proxies: Proxy[] }>('/api/proxy/list')
+    proxies.value = data.proxies || []
+  } catch {} finally { loading.value = false }
 }
 
 async function loadClients() {
   try {
     const data = await api.get<{ items: Client[] }>('/api/clients?pageSize=9999')
     clients.value = (data.items || []).filter((c: any) => c.online)
-  } catch {
-    // silent
-  }
+  } catch {}
 }
 
 async function createProxy() {
   if (!newProxy.value.clientId) return
-  creating.value = true
-  error.value = ''
+  creating.value = true; error.value = ''
   try {
-    await api.post('/api/socks5/proxies', newProxy.value)
-    success.value = 'Proxy created'
+    const port = newProxy.value.port
+    const data = await api.post<{ ok: boolean; port?: number; message?: string }>('/api/proxy/start', newProxy.value)
+    if (!data.ok) throw new Error(data.message || 'Failed to start proxy')
     showModal.value = false
     newProxy.value = { clientId: '', port: 1080 }
     await loadProxies()
-  } catch (e: any) {
-    error.value = e.message || 'Failed to create proxy'
-  } finally {
-    creating.value = false
-  }
+    success.value = `Proxy started on port ${port}`
+  } catch (e: any) { error.value = e.message || 'Failed' }
+  finally { creating.value = false }
 }
 
-async function stopProxy(id: number) {
-  stopping.value = id
+async function stopProxy(port: number) {
   error.value = ''
   try {
-    await api.post(`/api/socks5/proxies/${id}/stop`)
+    const data = await api.post<{ ok: boolean; message?: string }>('/api/proxy/stop', { port })
+    if (!data.ok) throw new Error(data.message || 'Failed to stop')
     await loadProxies()
-  } catch (e: any) {
-    error.value = e.message || 'Failed to stop proxy'
-  } finally {
-    stopping.value = null
-  }
+  } catch (e: any) { error.value = e.message || 'Failed' }
 }
 
-function openModal() {
-  loadClients()
-  showModal.value = true
-}
+function openModal() { loadClients(); showModal.value = true }
 
-function statusColor(status: string) {
-  if (status === 'active' || status === 'running') return 'text-green-400'
-  if (status === 'error' || status === 'failed') return 'text-red-400'
-  return 'text-slate-500'
+function proxyUrl(proxy: Proxy) {
+  return `socks5://${proxy.host || proxy.clientId}:${proxy.port}`
 }
 
 onMounted(() => {
   loadProxies()
   refreshTimer = setInterval(loadProxies, 5000)
 })
-
-onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
-})
+onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-950 p-6">
-    <div class="max-w-5xl mx-auto">
-      <div class="flex items-center justify-between mb-6">
-        <div class="flex items-center gap-3">
-          <h1 class="text-xl font-semibold text-slate-100">SOCKS5 Proxies</h1>
-          <span class="text-xs text-slate-500">Auto-refresh 5s</span>
-        </div>
-        <div class="flex gap-2">
-          <button @click="loadProxies" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm rounded border border-slate-700">
-            <i class="fas fa-sync-alt"></i>
-          </button>
-          <button @click="openModal" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded">
-            <i class="fas fa-plus mr-1.5"></i>New Proxy
-          </button>
-        </div>
+  <div>
+    <div class="section-header">
+      <div style="display:flex;align-items:center;gap:12px">
+        <h1 class="section-title"><i class="fa-solid fa-network-wired" style="margin-right:8px;color:#38bdf8"></i>SOCKS5 Proxies</h1>
+        <span class="badge badge-sm"><span class="status-dot status-dot-online" style="width:6px;height:6px"></span>Auto-refresh 5s</span>
       </div>
+      <button @click="openModal" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i>New Proxy</button>
+    </div>
 
-      <div v-if="error" class="mb-4 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-sm">{{ error }}</div>
-      <div v-if="success" class="mb-4 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded text-green-400 text-sm">{{ success }}</div>
+    <div v-if="error" class="alert alert-error" style="margin-bottom:16px"><i class="fa-solid fa-circle-exclamation"></i>{{ error }}</div>
+    <div v-if="success" class="alert alert-success" style="margin-bottom:16px"><i class="fa-solid fa-circle-check"></i>{{ success }}</div>
 
-      <div class="bg-slate-900 border border-slate-800 rounded overflow-hidden">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b border-slate-800 text-left text-slate-400">
-              <th class="px-4 py-2.5 font-medium">Client</th>
-              <th class="px-4 py-2.5 font-medium">Port</th>
-              <th class="px-4 py-2.5 font-medium">Status</th>
-              <th class="px-4 py-2.5 font-medium text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="loading">
-              <td colspan="4" class="px-4 py-8 text-center text-slate-500">
-                <i class="fas fa-spinner fa-spin mr-2"></i>Loading...
-              </td>
-            </tr>
-            <tr v-else-if="proxies.length === 0">
-              <td colspan="4" class="px-4 py-8 text-center text-slate-500">
-                No active proxies
-              </td>
-            </tr>
-            <tr
-              v-for="proxy in proxies"
-              :key="proxy.id"
-              class="border-b border-slate-800/50"
-            >
-              <td class="px-4 py-2.5 text-slate-200">{{ proxy.hostname }}</td>
-              <td class="px-4 py-2.5 text-slate-400 font-mono">{{ proxy.port }}</td>
-              <td class="px-4 py-2.5">
-                <span :class="[statusColor(proxy.status), 'text-xs']">
-                  <i class="fas fa-circle text-[6px] mr-1"></i>
-                  {{ proxy.status }}
-                </span>
-              </td>
-              <td class="px-4 py-2.5 text-right">
-                <button
-                  @click="stopProxy(proxy.id)"
-                  :disabled="stopping === proxy.id"
-                  class="px-2.5 py-1 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-xs rounded disabled:opacity-40"
-                >
-                  <i v-if="stopping === proxy.id" class="fas fa-spinner fa-spin mr-1"></i>
-                  <i v-else class="fas fa-stop mr-1"></i>
-                  Stop
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Client</th>
+            <th>Port</th>
+            <th>Proxy URL</th>
+            <th>Status</th>
+            <th style="text-align:right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="loading">
+            <td colspan="5" class="loading-state"><i class="fa-solid fa-spinner fa-spin"></i> Loading...</td>
+          </tr>
+          <tr v-else-if="proxies.length === 0">
+            <td colspan="5" class="empty-state">No active proxies</td>
+          </tr>
+          <tr v-for="p in proxies" :key="p.port">
+            <td style="font-weight:500;color:#e2e8f0">{{ p.nickname || p.host || p.clientId }}</td>
+            <td style="font-family:ui-monospace,monospace;font-size:12px;color:#94a3b8">{{ p.port }}</td>
+            <td style="font-family:ui-monospace,monospace;font-size:11px;color:#94a3b8">{{ proxyUrl(p) }}</td>
+            <td><span class="badge badge-sm badge-success">Active</span></td>
+            <td style="text-align:right">
+              <button @click="stopProxy(p.port)" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px">
+                <i class="fa-solid fa-stop" style="margin-right:4px"></i>Stop
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
 
-      <div v-if="showModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="showModal = false">
-        <div class="bg-slate-900 border border-slate-800 rounded-lg p-5 w-96">
-          <h2 class="text-sm font-medium text-slate-200 mb-4">New SOCKS5 Proxy</h2>
-          <div class="space-y-3">
-            <div>
-              <label class="block text-xs text-slate-400 mb-1">Client</label>
-              <select
-                v-model="newProxy.clientId"
-                class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-              >
-                <option value="" disabled>Select client...</option>
-                <option v-for="c in clients" :key="c.id" :value="c.id">{{ c.nickname || c.host }}</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs text-slate-400 mb-1">Port</label>
-              <input
-                v-model.number="newProxy.port"
-                type="number"
-                min="1"
-                max="65535"
-                class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-              />
-            </div>
+    <div v-if="showModal" class="fixed inset-0 bg-black/60 flex items-center justify-center z-50" @click.self="showModal = false">
+      <div class="panel" style="width:380px">
+        <h2 style="font-size:14px;font-weight:600;color:#e2e8f0;margin-bottom:14px">New SOCKS5 Proxy</h2>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div>
+            <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Client</label>
+            <AppSelect v-model="newProxy.clientId" :options="clients.map(c => ({ value: c.id, label: c.nickname || c.host }))" placeholder="Select client..." searchable />
           </div>
-          <div class="flex justify-end gap-2 mt-5">
-            <button @click="showModal = false" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm rounded">Cancel</button>
-            <button
-              @click="createProxy"
-              :disabled="!newProxy.clientId || creating"
-              class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm rounded"
-            >
-              <i v-if="creating" class="fas fa-spinner fa-spin mr-1"></i>
-              Create
-            </button>
+          <div>
+            <label style="font-size:11px;color:#94a3b8;display:block;margin-bottom:4px">Port</label>
+            <input v-model.number="newProxy.port" type="number" min="1" max="65535" class="input" style="width:100%" />
           </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+          <button @click="showModal = false" class="btn btn-sm">Cancel</button>
+          <button @click="createProxy" :disabled="!newProxy.clientId || creating" class="btn btn-primary btn-sm">
+            <i v-if="creating" class="fa-solid fa-spinner fa-spin"></i>Create
+          </button>
         </div>
       </div>
     </div>

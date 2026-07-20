@@ -1,4 +1,5 @@
 import { ref, onUnmounted } from "vue";
+import { encode, decode } from "@msgpack/msgpack";
 
 type WsStatus = "connecting" | "connected" | "disconnected" | "error";
 type MessageHandler = (data: Record<string, unknown> | Uint8Array) => void;
@@ -35,10 +36,19 @@ export function useWebSocket() {
             msgHandler({ type: "__frame__", data: bytes } as unknown as Record<string, unknown>);
           } else {
             try {
-              const text = new TextDecoder().decode(bytes);
-              msgHandler(JSON.parse(text));
+              const decoded = decode(bytes) as Record<string, unknown>;
+              if (decoded && typeof decoded === "object" && typeof (decoded as any).type === "string") {
+                msgHandler(decoded);
+              } else {
+                msgHandler({ type: "__binary__", data: bytes } as unknown as Record<string, unknown>);
+              }
             } catch {
-              msgHandler({ type: "__binary__", data: bytes } as unknown as Record<string, unknown>);
+              try {
+                const text = new TextDecoder().decode(bytes);
+                msgHandler(JSON.parse(text));
+              } catch {
+                msgHandler({ type: "__binary__", data: bytes } as unknown as Record<string, unknown>);
+              }
             }
           }
         }
@@ -58,6 +68,13 @@ export function useWebSocket() {
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(data));
   }
 
+  function sendMsgpack(data: Record<string, unknown>) {
+    if (ws?.readyState === WebSocket.OPEN) {
+      const encoded = encode(data);
+      ws.send(encoded);
+    }
+  }
+
   function sendRaw(data: string | ArrayBuffer | Uint8Array) {
     if (ws?.readyState === WebSocket.OPEN) ws.send(data);
   }
@@ -71,5 +88,5 @@ export function useWebSocket() {
 
   onUnmounted(() => { disconnect(); });
 
-  return { status, connect, sendJson, sendRaw, disconnect };
+  return { status, connect, sendJson, sendMsgpack, sendRaw, disconnect };
 }

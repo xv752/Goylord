@@ -108,7 +108,7 @@ await test("SPA: /app/ serves Vue index.html", async () => {
 const SPA_ROUTES = [
   "/app/login", "/app/settings", "/app/console/test", "/app/rd/test",
   "/app/backstage/test", "/app/files/test", "/app/processes/test",
-  "/app/graph", "/app/metrics", "/app/logs", "/app/users",
+  "/app/metrics", "/app/logs", "/app/users",
   "/app/notifications", "/app/scripts", "/app/socks5", "/app/plugins",
   "/app/build", "/app/purgatory", "/app/screenshots", "/app/keylogger/test",
   "/app/webcam/test", "/app/voice/test", "/app/deploy", "/app/winre", "/app/sol-publish",

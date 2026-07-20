@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 import { api } from '../lib/api'
+import AppSelect from '../components/ui/AppSelect.vue'
 
 interface User {
   id: number
@@ -36,10 +37,10 @@ async function loadData() {
   loading.value = true
   try {
     const [usersData, clientsData] = await Promise.all([
-      api.get<User[]>('/api/users'),
+      api.get<{ users: User[] }>('/api/users'),
       api.get<{ items: Client[] }>('/api/clients?pageSize=9999')
     ])
-    users.value = usersData
+    users.value = usersData.users || []
     clients.value = clientsData.items || []
   } catch {
     // silent
@@ -117,15 +118,12 @@ onMounted(loadData)
 
       <div class="bg-slate-900 border border-slate-800 rounded p-5 mb-6">
         <label class="block text-xs text-slate-400 mb-1.5">Select User</label>
-        <select
+        <AppSelect
           v-model="selectedUserId"
-          class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-        >
-          <option :value="null" disabled>Select user...</option>
-          <option v-for="user in users" :key="user.id" :value="user.id">
-            {{ user.username }} ({{ user.role }})
-          </option>
-        </select>
+          :options="users.map(user => ({ value: user.id, label: user.username + ' (' + user.role + ')' }))"
+          placeholder="Select user..."
+          searchable
+        />
       </div>
 
       <template v-if="selectedUserId">
@@ -152,13 +150,13 @@ onMounted(loadData)
             {{ accessScope === 'allowlist' ? 'Allowed' : 'Denied' }} Clients
           </h2>
           <div class="flex gap-2 mb-3">
-            <select
+            <AppSelect
               v-model="newClientId"
-              class="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm text-slate-200 focus:outline-none focus:border-blue-500"
-            >
-              <option value="" disabled>Select client...</option>
-              <option v-for="c in clients" :key="c.id" :value="c.id">{{ c.nickname || c.host }}</option>
-            </select>
+              :options="clients.map(c => ({ value: c.id, label: c.nickname || c.host }))"
+              placeholder="Select client..."
+              searchable
+              style="flex:1"
+            />
             <button
               @click="addRule"
               :disabled="!newClientId"

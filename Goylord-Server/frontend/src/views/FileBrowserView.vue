@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { clientApi } from "@/api/client";
-import type { Client } from "@/api/types";
+import { decode } from "@msgpack/msgpack";
 
 const route = useRoute();
 const router = useRouter();
 const clientId = route.params.id as string;
 
-const client = ref<Client | null>(null);
-const loading = ref(true);
 const connected = ref(false);
 const error = ref("");
 const currentPath = ref("C:\\");
@@ -21,20 +18,20 @@ const showNewFolderInput = ref(false);
 const renameTarget = ref<string | null>(null);
 const renameValue = ref("");
 let ws: WebSocket | null = null;
-let commandIdCounter = 0;
+
+const ctxMenu = ref<{ show: boolean; x: number; y: number; type: "file" | "folder" | "empty"; entry: any | null }>({
+  show: false, x: 0, y: 0, type: "empty", entry: null,
+});
+const uploadInputRef = ref<HTMLInputElement | null>(null);
 
 const wsUrl = () => {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/api/clients/${clientId}/files/ws`;
+  return `${proto}://${location.host}/api/clients/${encodeURIComponent(clientId)}/files/ws`;
 };
 
 const sortedEntries = computed(() => {
-  const dirs = entries.value
-    .filter((e) => e.isDir)
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const files = entries.value
-    .filter((e) => !e.isDir)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const dirs = entries.value.filter((e) => e.isDir).sort((a, b) => a.name.localeCompare(b.name));
+  const files = entries.value.filter((e) => !e.isDir).sort((a, b) => a.name.localeCompare(b.name));
   return [...dirs, ...files];
 });
 
@@ -52,13 +49,12 @@ const quickNavItems = [
   { label: "Temp", path: "C:\\Windows\\Temp" },
 ];
 
-async function fetchClient() {
-  try {
-    const res = await clientApi.list({ clientId });
-    client.value = (res.items || []).find((c) => c.id === clientId) || null;
-  } catch { /* silent */ } finally {
-    loading.value = false;
-  }
+function decodeMsg(data: ArrayBuffer | string): any {
+  if (typeof data === "string") return JSON.parse(data);
+  const bytes = new Uint8Array(data);
+  try { return decode(bytes); } catch {}
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch {}
+  return null;
 }
 
 function connect() {
@@ -74,18 +70,18 @@ function connect() {
     ws.onclose = () => { connected.value = false; };
     ws.onerror = () => { error.value = "Connection failed"; connected.value = false; };
     ws.onmessage = (ev) => {
-      try {
-        const raw = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data);
-        const data = JSON.parse(raw);
-        if (data.type === "file_list_result" && data.entries) {
-          entries.value = data.entries;
-          if (data.path) currentPath.value = data.path;
-        } else if (data.type === "file_download" && data.data) {
-          handleDownloadChunk(data);
-        } else if (data.type === "command_result" && data.ok === false) {
-          error.value = data.message || "Command failed";
-        }
-      } catch { /* silent */ }
+      const data = decodeMsg(ev.data);
+      if (!data) return;
+      if (data.type === "ready") return;
+      if (data.type === "status") return;
+      if (data.type === "file_list_result" && data.entries) {
+        entries.value = data.entries;
+        if (data.path) currentPath.value = data.path;
+      } else if (data.type === "file_download" && data.data) {
+        handleDownloadChunk(data);
+      } else if (data.type === "command_result" && data.ok === false) {
+        error.value = data.message || "Command failed";
+      }
     };
   } catch { error.value = "Failed to connect"; }
 }
@@ -121,68 +117,40 @@ function handleDownloadChunk(data: any) {
   if (received >= dl.total || data.offset + data.data.byteLength >= data.total) {
     const merged = new Uint8Array(dl.total);
     let offset = 0;
-    for (const chunk of dl.chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.length;
-    }
+    for (const chunk of dl.chunks) { merged.set(chunk, offset); offset += chunk.length; }
     pendingDownloads.delete(key);
     if (pendingDownloads.size === 0) downloading.value = false;
     const blob = new Blob([merged]);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = key.split(/[\\/]/).pop() || "download";
-    a.click();
+    a.href = url; a.download = key.split(/[\\/]/).pop() || "download"; a.click();
     URL.revokeObjectURL(url);
   }
 }
 
-function downloadFile(path: string) {
-  sendRaw({ type: "file_download", path });
-}
-
-function navigateTo(path: string) {
-  selectedFile.value = null;
-  sendFileList(path);
-}
-
+function downloadFile(path: string) { sendRaw({ type: "file_download", path }); }
+function navigateTo(path: string) { selectedFile.value = null; sendFileList(path); }
 function navigateUp() {
   const cleaned = currentPath.value.replace(/[\\/]+$/, "");
   const idx = cleaned.lastIndexOf("\\");
-  if (idx > 0) {
-    navigateTo(cleaned.substring(0, idx + 1));
-  }
+  if (idx > 0) navigateTo(cleaned.substring(0, idx + 1));
 }
-
 function navigateBread(idx: number) {
   const base = breadcrumbParts.value.slice(0, idx + 1).join("\\");
-  const path = idx === 0 ? base + "\\" : base;
-  navigateTo(path);
+  navigateTo(idx === 0 ? base + "\\" : base);
 }
-
 function onEntryDblClick(entry: any) {
   if (entry.isDir) {
     const sep = entry.path.includes("/") ? "/" : "\\";
     navigateTo(entry.path.endsWith(sep) ? entry.path : entry.path + sep);
   }
 }
-
 function onEntryClick(entry: any) {
-  if (!entry.isDir) {
-    selectedFile.value = entry.path;
-  } else {
-    onEntryDblClick(entry);
-  }
+  if (!entry.isDir) selectedFile.value = entry.path;
+  else onEntryDblClick(entry);
 }
-
-function quickNav(item: { path: string }) {
-  navigateTo(item.path);
-}
-
-function handleRefresh() {
-  sendFileList(currentPath.value);
-}
-
+function quickNav(item: { path: string }) { navigateTo(item.path); }
+function handleRefresh() { sendFileList(currentPath.value); }
 function createFolder() {
   const name = newFolderName.value.trim();
   if (!name) return;
@@ -193,66 +161,110 @@ function createFolder() {
   newFolderName.value = "";
   setTimeout(() => sendFileList(currentPath.value), 500);
 }
-
 function deleteSelected() {
   if (!selectedFile.value) return;
   sendRaw({ type: "file_delete", path: selectedFile.value });
   selectedFile.value = null;
   setTimeout(() => sendFileList(currentPath.value), 500);
 }
-
-function startRename(entry: any) {
-  renameTarget.value = entry.path;
-  renameValue.value = entry.name;
-}
-
+function startRename(entry: any) { renameTarget.value = entry.path; renameValue.value = entry.name; }
 function confirmRename() {
   if (!renameTarget.value || !renameValue.value.trim()) return;
   const dir = renameTarget.value.replace(/[\\/][^\\/]+$/, "");
   const sep = dir.includes("/") ? "/" : "\\";
-  sendRaw({
-    type: "file_rename",
-    source: renameTarget.value,
-    destination: dir + sep + renameValue.value.trim(),
-  });
-  renameTarget.value = null;
-  renameValue.value = "";
+  sendRaw({ type: "file_rename", source: renameTarget.value, destination: dir + sep + renameValue.value.trim() });
+  renameTarget.value = null; renameValue.value = "";
   setTimeout(() => sendFileList(currentPath.value), 500);
 }
-
-function cancelRename() {
-  renameTarget.value = null;
-  renameValue.value = "";
-}
-
+function cancelRename() { renameTarget.value = null; renameValue.value = ""; }
 function formatSize(bytes: number | undefined | null) {
   if (bytes == null) return "-";
   if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const k = 1024; const sizes = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return (bytes / Math.pow(k, i)).toFixed(1) + " " + sizes[i];
 }
-
 function formatDate(ts: number | undefined | null) {
   if (!ts) return "-";
-  return new Date(ts).toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(ts).toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
-
 function reconnect() { connect(); }
 
-onMounted(async () => {
-  await fetchClient();
-  connect();
-});
+function closeCtxMenu() { ctxMenu.value.show = false; }
 
-onUnmounted(() => { ws?.close(); });
+function onEntryContextMenu(e: MouseEvent, entry: any) {
+  e.preventDefault();
+  e.stopPropagation();
+  ctxMenu.value = {
+    show: true,
+    x: e.clientX,
+    y: e.clientY,
+    type: entry.isDir ? "folder" : "file",
+    entry,
+  };
+}
+
+function onListContextMenu(e: MouseEvent) {
+  if ((e.target as HTMLElement).closest("tr[data-entry]")) return;
+  e.preventDefault();
+  ctxMenu.value = { show: true, x: e.clientX, y: e.clientY, type: "empty", entry: null };
+}
+
+function ctxDownload() {
+  if (ctxMenu.value.entry) downloadFile(ctxMenu.value.entry.path);
+  closeCtxMenu();
+}
+function ctxDelete() {
+  if (ctxMenu.value.entry) {
+    sendRaw({ type: "file_delete", path: ctxMenu.value.entry.path });
+    setTimeout(() => sendFileList(currentPath.value), 500);
+  }
+  closeCtxMenu();
+}
+function ctxRename() {
+  if (ctxMenu.value.entry) startRename(ctxMenu.value.entry);
+  closeCtxMenu();
+}
+function ctxOpen() {
+  if (ctxMenu.value.entry && ctxMenu.value.entry.isDir) onEntryDblClick(ctxMenu.value.entry);
+  closeCtxMenu();
+}
+function ctxExecute(silent: boolean) {
+  if (!ctxMenu.value.entry) { closeCtxMenu(); return; }
+  const path = ctxMenu.value.entry.path;
+  if (silent) {
+    sendRaw({ type: "command", commandType: "silent_exec", id: `silent-exec-${Date.now()}`, payload: { command: path, args: [], hideWindow: true } });
+  } else {
+    sendRaw({ type: "command", commandType: "file_execute", id: `exec-${Date.now()}`, payload: { path } });
+  }
+  closeCtxMenu();
+}
+function ctxUploadFile() { uploadInputRef.value?.click(); closeCtxMenu(); }
+function ctxNewFolder() { showNewFolderInput.value = true; closeCtxMenu(); }
+function ctxRefresh() { handleRefresh(); closeCtxMenu(); }
+
+function triggerUploadFile() { uploadInputRef.value?.click(); }
+async function handleFileUpload(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  for (const file of files) {
+    const buf = await file.arrayBuffer();
+    const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+    sendRaw({ type: "file_upload", path: currentPath.value.replace(/[\\/]+$/, "") + "\\" + file.name, data: b64, offset: 0, total: buf.byteLength, transferId: `upload-${Date.now()}-${Math.random()}` });
+  }
+  input.value = "";
+  setTimeout(() => sendFileList(currentPath.value), 1000);
+}
+
+onMounted(() => {
+  connect();
+  document.addEventListener("click", closeCtxMenu);
+});
+onUnmounted(() => {
+  ws?.close();
+  document.removeEventListener("click", closeCtxMenu);
+});
 </script>
 
 <template>
@@ -261,11 +273,7 @@ onUnmounted(() => { ws?.close(); });
       <button @click="router.back()" class="text-slate-400 hover:text-slate-200 transition-colors">
         <i class="fa-solid fa-arrow-left"></i>
       </button>
-      <div v-if="loading" class="text-sm text-slate-400">Loading...</div>
-      <template v-else-if="client">
-        <h1 class="text-lg font-semibold text-slate-100">File Browser</h1>
-        <span class="text-sm text-slate-400">{{ client.nickname || client.host }}</span>
-      </template>
+      <h1 class="text-lg font-semibold text-slate-100">File Browser</h1>
       <div class="ml-auto flex items-center gap-2">
         <span :class="['w-2 h-2 rounded-full', connected ? 'bg-green-500' : 'bg-red-500']"></span>
         <button @click="reconnect" class="px-2.5 py-1 text-xs rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 transition-colors">
@@ -282,12 +290,8 @@ onUnmounted(() => { ws?.close(); });
           <span class="text-xs text-slate-400 font-medium">Quick Navigation</span>
         </div>
         <div class="p-1">
-          <button
-            v-for="item in quickNavItems"
-            :key="item.label"
-            @click="quickNav(item)"
-            class="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-slate-100 rounded transition-colors"
-          >
+          <button v-for="item in quickNavItems" :key="item.label" @click="quickNav(item)"
+            class="w-full text-left px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-slate-100 rounded transition-colors">
             <i class="fa-solid fa-hard-drive mr-2 text-slate-500"></i>{{ item.label }}
           </button>
         </div>
@@ -301,10 +305,7 @@ onUnmounted(() => { ws?.close(); });
             </button>
             <span class="text-slate-600 mx-1">|</span>
             <template v-for="(part, i) in breadcrumbParts" :key="i">
-              <button
-                @click="navigateBread(i)"
-                class="text-slate-300 hover:text-white px-1 transition-colors"
-              >{{ part }}</button>
+              <button @click="navigateBread(i)" class="text-slate-300 hover:text-white px-1 transition-colors">{{ part }}</button>
               <span v-if="i < breadcrumbParts.length - 1" class="text-slate-600">\</span>
             </template>
           </div>
@@ -314,34 +315,22 @@ onUnmounted(() => { ws?.close(); });
           <button @click="showNewFolderInput = !showNewFolderInput" :disabled="!connected" class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors" title="New folder">
             <i class="fa-solid fa-folder-plus"></i>
           </button>
-          <button
-            v-if="selectedFile"
-            @click="downloadFile(selectedFile)"
-            :disabled="!connected"
-            class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors"
-            title="Download selected"
-          >
+          <button v-if="selectedFile" @click="downloadFile(selectedFile)" :disabled="!connected" class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors" title="Download selected">
             <i class="fa-solid fa-download"></i>
           </button>
-          <button
-            v-if="selectedFile"
-            @click="deleteSelected"
-            :disabled="!connected"
-            class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-red-800 text-red-400 hover:bg-red-900/30 disabled:opacity-40 transition-colors"
-            title="Delete selected"
-          >
+          <button v-if="selectedFile" @click="deleteSelected" :disabled="!connected" class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-red-800 text-red-400 hover:bg-red-900/30 disabled:opacity-40 transition-colors" title="Delete selected">
             <i class="fa-solid fa-trash"></i>
           </button>
+          <button @click="triggerUploadFile" :disabled="!connected" class="px-2.5 py-1.5 text-xs rounded bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800 disabled:opacity-40 transition-colors" title="Upload file">
+            <i class="fa-solid fa-cloud-arrow-up"></i>
+          </button>
+          <input ref="uploadInputRef" type="file" class="hidden" multiple @change="handleFileUpload" />
         </div>
 
         <div v-if="showNewFolderInput" class="flex items-center gap-2 mb-2 flex-shrink-0">
-          <input
-            v-model="newFolderName"
-            type="text"
-            placeholder="Folder name"
+          <input v-model="newFolderName" type="text" placeholder="Folder name"
             class="flex-1 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-slate-700"
-            @keydown.enter="createFolder"
-          />
+            @keydown.enter="createFolder" />
           <button @click="createFolder" class="px-3 py-1.5 text-xs rounded bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 transition-colors">
             <i class="fa-solid fa-check mr-1"></i>Create
           </button>
@@ -350,7 +339,7 @@ onUnmounted(() => { ws?.close(); });
           </button>
         </div>
 
-        <div class="flex-1 overflow-auto bg-slate-900 border border-slate-800 rounded-lg">
+        <div class="flex-1 overflow-auto bg-slate-900 border border-slate-800 rounded-lg" @contextmenu="onListContextMenu">
           <div v-if="!connected" class="flex items-center justify-center h-full text-slate-500 text-sm">
             Not connected
           </div>
@@ -364,46 +353,22 @@ onUnmounted(() => { ws?.close(); });
             </thead>
             <tbody>
               <tr v-if="currentPath !== 'C:\\' && currentPath !== '/'"
-                class="border-b border-slate-800/50 hover:bg-slate-800/50 cursor-pointer"
-                @click="navigateUp"
-              >
-                <td class="px-3 py-2 text-slate-300">
-                  <i class="fa-solid fa-arrow-up mr-2 text-slate-500"></i>..
-                </td>
+                class="border-b border-slate-800/50 hover:bg-slate-800/50 cursor-pointer" @click="navigateUp">
+                <td class="px-3 py-2 text-slate-300"><i class="fa-solid fa-arrow-up mr-2 text-slate-500"></i>..</td>
                 <td class="px-3 py-2 text-slate-500 text-xs">-</td>
                 <td class="px-3 py-2 text-slate-500 text-xs">-</td>
               </tr>
-              <tr
-                v-for="entry in sortedEntries"
-                :key="entry.path"
-                :class="[
-                  'border-b border-slate-800/50 cursor-pointer transition-colors',
-                  selectedFile === entry.path ? 'bg-blue-900/20 border-blue-800/30' : 'hover:bg-slate-800/50',
-                ]"
-                @click="onEntryClick(entry)"
-                @dblclick="onEntryDblClick(entry)"
-              >
+              <tr v-for="entry in sortedEntries" :key="entry.path"
+                data-entry
+                :class="['border-b border-slate-800/50 cursor-pointer transition-colors', selectedFile === entry.path ? 'bg-blue-900/20 border-blue-800/30' : 'hover:bg-slate-800/50']"
+                @click="onEntryClick(entry)" @dblclick="onEntryDblClick(entry)" @contextmenu="onEntryContextMenu($event, entry)">
                 <td class="px-3 py-2 text-slate-200">
-                  <i
-                    :class="[
-                      entry.isDir ? 'fa-solid fa-folder text-amber-500' : 'fa-solid fa-file text-slate-500',
-                      'mr-2',
-                    ]"
-                  ></i>
+                  <i :class="[entry.isDir ? 'fa-solid fa-folder text-amber-500' : 'fa-solid fa-file text-slate-500', 'mr-2']"></i>
                   <template v-if="renameTarget === entry.path">
-                    <input
-                      v-model="renameValue"
-                      type="text"
-                      class="w-48 px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none"
-                      @keydown.enter="confirmRename"
-                      @keydown.esc="cancelRename"
-                      @click.stop
-                      autofocus
-                    />
+                    <input v-model="renameValue" type="text" class="w-48 px-1.5 py-0.5 bg-slate-800 border border-slate-600 rounded text-xs text-slate-200 focus:outline-none"
+                      @keydown.enter="confirmRename" @keydown.esc="cancelRename" @click.stop autofocus />
                   </template>
-                  <template v-else>
-                    {{ entry.name }}
-                  </template>
+                  <template v-else>{{ entry.name }}</template>
                 </td>
                 <td class="px-3 py-2 text-slate-500 text-xs">{{ entry.isDir ? "-" : formatSize(entry.size) }}</td>
                 <td class="px-3 py-2 text-slate-500 text-xs">{{ formatDate(entry.modTime) }}</td>
@@ -423,5 +388,63 @@ onUnmounted(() => { ws?.close(); });
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="ctxMenu.show" class="ctx-menu" :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }" @click.stop>
+        <template v-if="ctxMenu.type === 'file'">
+          <button @click="ctxDownload" class="ctx-menu-btn">
+            <i class="fa-solid fa-download" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>Download</span>
+          </button>
+          <button @click="ctxRename" class="ctx-menu-btn">
+            <i class="fa-solid fa-pen" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>Rename</span>
+          </button>
+          <button @click="ctxExecute(false)" class="ctx-menu-btn">
+            <i class="fa-solid fa-play" style="width:16px;text-align:center;font-size:12px;color:#4ade80"></i>
+            <span>Execute</span>
+          </button>
+          <button @click="ctxExecute(true)" class="ctx-menu-btn">
+            <i class="fa-solid fa-ghost" style="width:16px;text-align:center;font-size:12px;color:#a78bfa"></i>
+            <span>Silent Execute</span>
+          </button>
+          <div class="ctx-menu-sep"></div>
+          <button @click="ctxDelete" class="ctx-menu-btn ctx-menu-btn-danger">
+            <i class="fa-solid fa-trash" style="width:16px;text-align:center;font-size:12px"></i>
+            <span>Delete</span>
+          </button>
+        </template>
+        <template v-else-if="ctxMenu.type === 'folder'">
+          <button @click="ctxOpen" class="ctx-menu-btn">
+            <i class="fa-solid fa-folder-open" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>Open</span>
+          </button>
+          <button @click="ctxRename" class="ctx-menu-btn">
+            <i class="fa-solid fa-pen" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>Rename</span>
+          </button>
+          <div class="ctx-menu-sep"></div>
+          <button @click="ctxDelete" class="ctx-menu-btn ctx-menu-btn-danger">
+            <i class="fa-solid fa-trash" style="width:16px;text-align:center;font-size:12px"></i>
+            <span>Delete</span>
+          </button>
+        </template>
+        <template v-else>
+          <button @click="ctxUploadFile" class="ctx-menu-btn">
+            <i class="fa-solid fa-cloud-arrow-up" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>Upload File</span>
+          </button>
+          <button @click="ctxNewFolder" class="ctx-menu-btn">
+            <i class="fa-solid fa-folder-plus" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>New Folder</span>
+          </button>
+          <div class="ctx-menu-sep"></div>
+          <button @click="ctxRefresh" class="ctx-menu-btn">
+            <i class="fa-solid fa-rotate-right" style="width:16px;text-align:center;font-size:12px;color:#e2e8f0"></i>
+            <span>Refresh</span>
+          </button>
+        </template>
+      </div>
+    </Teleport>
   </div>
 </template>

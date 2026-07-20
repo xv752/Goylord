@@ -1,15 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { clientApi } from "@/api/client";
-import type { Client, ProcessInfo } from "@/api/types";
+import { decode } from "@msgpack/msgpack";
+import type { ProcessInfo } from "@/api/types";
 
 const route = useRoute();
 const router = useRouter();
 const clientId = route.params.id as string;
-
-const client = ref<Client | null>(null);
-const loading = ref(true);
 const connected = ref(false);
 const error = ref("");
 const search = ref("");
@@ -87,13 +84,12 @@ function sortIndicator(key: typeof sortKey.value) {
   return sortAsc.value ? " \u25B2" : " \u25BC";
 }
 
-async function fetchClient() {
-  try {
-    const res = await clientApi.list({ clientId });
-    client.value = res.items.find((c) => c.id === clientId) || null;
-  } catch { /* silent */ } finally {
-    loading.value = false;
-  }
+function decodeMsg(data: ArrayBuffer | string): any {
+  if (typeof data === "string") return JSON.parse(data);
+  const bytes = new Uint8Array(data);
+  try { return decode(bytes); } catch {}
+  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch {}
+  return null;
 }
 
 function connect() {
@@ -112,15 +108,13 @@ function connect() {
     };
     ws.onerror = () => { error.value = "Connection failed"; connected.value = false; };
     ws.onmessage = (ev) => {
-      try {
-        const raw = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data);
-        const data = JSON.parse(raw);
-        if (data.type === "process_list_result" && data.processes) {
-          processes.value = data.processes;
-        } else if (data.type === "command_result" && data.ok === false) {
-          error.value = data.message || "Command failed";
-        }
-      } catch { /* silent */ }
+      const data = decodeMsg(ev.data);
+      if (!data) return;
+      if (data.type === "process_list_result" && data.processes) {
+        processes.value = data.processes;
+      } else if (data.type === "command_result" && data.ok === false) {
+        error.value = data.message || "Command failed";
+      }
     };
   } catch { error.value = "Failed to connect"; }
 }
@@ -179,16 +173,20 @@ function cpuColor(cpu: number) {
   return "text-red-400";
 }
 
-function memColor(mem: number) {
-  if (mem < 100) return "text-green-400";
-  if (mem < 512) return "text-amber-400";
+function memColor(bytes: number) {
+  if (bytes < 104857600) return "text-green-400";
+  if (bytes < 536870912) return "text-amber-400";
   return "text-red-400";
 }
 
-function formatMem(mb: number | undefined | null) {
-  if (mb == null) return "-";
-  if (mb >= 1024) return (mb / 1024).toFixed(1) + " GB";
-  return mb.toFixed(0) + " MB";
+function formatBytes(bytes: number | undefined | null) {
+  if (bytes == null) return "-";
+  bytes = Number(BigInt(bytes) & BigInt(0xFFFFFFFFFFF));
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
 
 function formatCpu(cpu: number | undefined | null) {
@@ -201,8 +199,7 @@ function reconnect() {
   connect();
 }
 
-onMounted(async () => {
-  await fetchClient();
+onMounted(() => {
   connect();
   if (autoRefresh.value) startAutoRefresh();
 });
@@ -219,11 +216,7 @@ onUnmounted(() => {
       <button @click="router.back()" class="text-slate-400 hover:text-slate-200 transition-colors">
         <i class="fa-solid fa-arrow-left"></i>
       </button>
-      <div v-if="loading" class="text-sm text-slate-400">Loading...</div>
-      <template v-else-if="client">
-        <h1 class="text-lg font-semibold text-slate-100">Processes</h1>
-        <span class="text-sm text-slate-400">{{ client.nickname || client.host }}</span>
-      </template>
+      <h1 class="text-lg font-semibold text-slate-100">Processes</h1>
       <div class="ml-auto flex items-center gap-2">
         <span class="text-xs text-slate-500">{{ filteredProcesses.length }} / {{ processes.length }} processes</span>
         <button
@@ -297,7 +290,7 @@ onUnmounted(() => {
             <td class="px-3 py-2 text-slate-200">{{ p.name }}</td>
             <td class="px-3 py-2 text-slate-400 text-xs">{{ p.username || "-" }}</td>
             <td :class="['px-3 py-2 font-mono text-xs', cpuColor(p.cpu || 0)]">{{ formatCpu(p.cpu) }}</td>
-            <td :class="['px-3 py-2 font-mono text-xs', memColor(p.memory || 0)]">{{ formatMem(p.memory) }}</td>
+            <td :class="['px-3 py-2 font-mono text-xs', memColor(p.memory || 0)]">{{ formatBytes(p.memory) }}</td>
             <td class="px-3 py-2 text-slate-500 text-xs max-w-xs truncate" :title="p.exePath">{{ p.exePath || "-" }}</td>
             <td class="px-3 py-2">
               <button

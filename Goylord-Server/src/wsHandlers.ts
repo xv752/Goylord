@@ -317,7 +317,14 @@ export function handleScreenshotThumbnailResult(info: ClientInfo, payload: any):
   return true;
 }
 
-export function handleFrame(info: ClientInfo, payload: any): boolean {
+export function shouldRelayFrameToViewers(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object" || !("header" in payload)) return false;
+  const header = (payload as Record<string, unknown>).header;
+  if (!header || typeof header !== "object" || !("fps" in header)) return false;
+  return Number(header.fps) > 0;
+}
+
+export function handleFrame(info: ClientInfo, payload: any, relayToViewers = true): boolean {
   const bytes = payload.data as unknown as Uint8Array;
   const header = (payload as any).header;
   const allowedFormats = ["jpeg", "jpg", "webp"];
@@ -327,21 +334,23 @@ export function handleFrame(info: ClientInfo, payload: any): boolean {
   metrics.recordBytesReceived(bytes.length);
 
   let handledByViewerRelay = false;
-  try {
-    const globalAny: any = globalThis as any;
-    if (header?.webcam) {
-      if (globalAny.__webcamBroadcast) {
-        handledByViewerRelay = globalAny.__webcamBroadcast(info.id, bytes, header);
+  if (relayToViewers) {
+    try {
+      const globalAny: any = globalThis as any;
+      if (header?.webcam) {
+        if (globalAny.__webcamBroadcast) {
+          handledByViewerRelay = globalAny.__webcamBroadcast(info.id, bytes, header);
+        }
+      } else if (header?.backstage) {
+        if (globalAny.__backstageBroadcast) {
+          handledByViewerRelay = globalAny.__backstageBroadcast(info.id, bytes, header);
+        }
+      } else if (globalAny.__rdBroadcast) {
+        handledByViewerRelay = globalAny.__rdBroadcast(info.id, bytes, header);
       }
-    } else if (header?.backstage) {
-      if (globalAny.__backstageBroadcast) {
-        handledByViewerRelay = globalAny.__backstageBroadcast(info.id, bytes, header);
-      }
-    } else if (globalAny.__rdBroadcast) {
-      handledByViewerRelay = globalAny.__rdBroadcast(info.id, bytes, header);
+    } catch (err) {
+      console.error("[wsHandlers] frame broadcast error:", err);
     }
-  } catch (err) {
-    console.error("[wsHandlers] frame broadcast error:", err);
   }
 
   if (safeFormat) {

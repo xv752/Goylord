@@ -182,6 +182,11 @@ function broadcastFrameToViewers(
 
 const rdSendStats = { lastLog: 0, frames: 0, sendMs: 0, bytes: 0 };
 const rdDebugFrameLogAt = new Map<string, number>();
+const AUTOMATIC_DESKTOP_KEYFRAME_REASONS: Record<string, true> = {
+  viewer_frame_gap: true,
+  h264_decoder_keyframe_required: true,
+  hevc_decoder_keyframe_required: true,
+};
 export const rdStreamingState = new Map<string, {
   isStreaming: boolean;
   display: number;
@@ -360,6 +365,18 @@ export function notifyRemoteDesktopStatus(clientId: string, status: string, reas
   }
 }
 
+export function requestRemoteDesktopKeyframeAfterScreenshot(clientId: string): boolean {
+  const state = rdStreamingState.get(clientId);
+  if (!state?.isStreaming || String(state.codec || "").toLowerCase() !== "hevc") {
+    return false;
+  }
+  return sendDesktopCommand(
+    clientManager.getClient(clientId),
+    "desktop_request_keyframe",
+    { reason: "post_screenshot_hevc_recovery" },
+  );
+}
+
 export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>, raw: string | ArrayBuffer | Uint8Array) {
   const payload = decodeViewerPayload(raw);
   if (!payload) return;
@@ -477,6 +494,15 @@ export function handleRemoteDesktopViewerMessage(ws: ServerWebSocket<SocketData>
         logger.debug(`[rd] ignoring desktop_stop for client ${clientId} - ${otherViewers.length} other viewer(s) still active`);
       }
       safeSendViewer(ws, { type: "status", status: "stopped" });
+      break;
+    }
+    case "desktop_request_keyframe": {
+      if (state.isStreaming) {
+        const requestedReason = String(payload.reason || "");
+        sendDesktopCommand(target, "desktop_request_keyframe", {
+          reason: AUTOMATIC_DESKTOP_KEYFRAME_REASONS[requestedReason] ? requestedReason : "manual_viewer",
+        });
+      }
       break;
     }
     case "desktop_record_start": {
@@ -1530,6 +1556,33 @@ export function handleDesktopEncoderCapabilities(clientId: string, payload: any)
 export function handleDesktopStreamStats(clientId: string, payload: any) {
   for (const session of sessionManager.getRdSessionsForClient(clientId)) {
     safeSendViewer(session.viewer, payload);
+  }
+}
+
+export function handleDesktopCursor(clientId: string, payload: unknown) {
+  const data = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const image = data.image instanceof Uint8Array && data.image.byteLength <= 256 * 1024
+    ? data.image
+    : undefined;
+  const cursor = {
+    type: "desktop_cursor",
+    x: Math.max(0, Math.floor(Number(data.x) || 0)),
+    y: Math.max(0, Math.floor(Number(data.y) || 0)),
+    width: Math.max(0, Math.floor(Number(data.width) || 0)),
+    height: Math.max(0, Math.floor(Number(data.height) || 0)),
+    visible: data.visible === true,
+    ...(image
+      ? {
+          cursorWidth: Math.max(1, Math.floor(Number(data.cursorWidth) || 1)),
+          cursorHeight: Math.max(1, Math.floor(Number(data.cursorHeight) || 1)),
+          hotspotX: Math.max(0, Math.floor(Number(data.hotspotX) || 0)),
+          hotspotY: Math.max(0, Math.floor(Number(data.hotspotY) || 0)),
+          image,
+        }
+      : {}),
+  };
+  for (const session of sessionManager.getRdSessionsForClient(clientId)) {
+    safeSendViewer(session.viewer, cursor, "rd-cursor");
   }
 }
 

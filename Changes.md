@@ -1857,3 +1857,236 @@ All 8 critical security/stability fixes confirmed: `crypto/rand` seeding (sessio
 - `Goylord-Server/frontend/src/components/ui/Toast.vue` — glass toast
 
 **Verification:** Build succeeds (162KB JS, 73KB CSS), server tests 637 pass / 5 fail (unchanged), API tests 9/9 pass
+
+---
+
+### Vue3 Frontend — Comprehensive API Endpoint Audit & Fix (17 views)
+
+**Timestamp:** 2026-07-19 18:30
+
+**Bug:** All Vue frontend views had API endpoint mismatches vs server routes — wrong URLs, wrong HTTP methods, wrong request body shapes, wrong response shape unwrapping. Every view that was rewritten in the migration had at least one broken API call, meaning no write operations would succeed in production.
+
+**Root cause:** The Vue views were written by reading the server route files, but several assumptions about endpoint names, body shapes, and response structures were incorrect. Some endpoints used different names (e.g., `/api/users/:id` vs granular `/api/users/:id/role`), some used wrong HTTP methods (`PUT` vs `POST`), some sent wrong body keys (`command` vs `action`, `password` vs `newPassword`), and some didn't unwrap nested response objects (`{ plugins: [...] }` vs bare array).
+
+**Fix:**
+
+- **SettingsView.vue:** Fixed 7 endpoints — MFA (`/api/mfa/setup`, `/api/mfa/enable`, `/api/mfa/disable` instead of `/api/auth/mfa/*`), password (`/api/users/:id/password` instead of `/api/auth/password`), TLS (`/api/settings/tls` instead of `/api/tls/status`), security (field name mapping to `passwordMinLength` etc.), OIDC (field mapping to `oidc.enabled`, `oidc.label` etc.), appearance (unwrap `response.loginBranding`), chat (unwrap `response.chat.retentionDays`), enrollment settings (`POST` instead of `PUT`), build limits (`/api/settings/build-rate-limit` with correct field names)
+- **UsersView.vue:** Fixed 4 endpoints — removed non-existent `PUT /api/users/:id`, replaced with `PUT /api/users/:id/role` + `PUT /api/users/:id/password`, fixed `PUT /api/users/:id/permissions` → split into `PUT /api/users/:id/permission-groups` + `PUT /api/users/:id/feature-permissions`, fixed permission-group update (`PATCH` instead of `PUT`)
+- **PluginsView.vue:** Fixed 4 bugs — unwrap `{ plugins: [...] }` response, removed non-existent `/disable` endpoint (use `/enable` with `{ enabled: false }`), added missing body `{ enabled: ... }` to enable calls, added missing body `{ autoLoad: ... }` to autoload calls
+- **ScriptsView.vue:** Fixed 2 bugs — wrong body key `command` → `action` on command endpoint, empty content rejected by server (use `'# New script'` placeholder)
+- **Socks5View.vue:** Fixed 1 bug — proxy start success message showed `data.port` (always undefined) → use `newProxy.value.port`
+- **LogsView.vue:** Fixed 1 bug — `startDate`/`endDate` sent as ISO date strings but server expects epoch milliseconds → convert with `new Date(date + 'T00:00:00').getTime()`
+- **PurgatoryView.vue (frontend):** Fixed 1 bug — "Unless Suspicious" toggle called `toggleSettings()` which also toggled `requireApproval`, creating incorrect server state → separate `toggleSuspicious()` function
+- **PurgatoryView.vue (server):** Fixed 1 bug — `DELETE /api/enrollment/banned-ips` was unreachable because generic `DELETE /api/enrollment/:id` regex matched first (route shadowing) → moved banned-ips handler before generic handler in `enrollment-routes.ts`
+
+**Files modified (10 files):**
+- `Goylord-Server/frontend/src/views/SettingsView.vue` — 7 endpoint fixes
+- `Goylord-Server/frontend/src/views/UsersView.vue` — 4 endpoint fixes
+- `Goylord-Server/frontend/src/views/PluginsView.vue` — 4 bug fixes
+- `Goylord-Server/frontend/src/views/ScriptsView.vue` — 2 bug fixes
+- `Goylord-Server/frontend/src/views/Socks5View.vue` — 1 bug fix
+- `Goylord-Server/frontend/src/views/LogsView.vue` — 1 bug fix
+- `Goylord-Server/frontend/src/views/PurgatoryView.vue` — 1 bug fix (toggle logic)
+- `Goylord-Server/src/server/routes/enrollment-routes.ts` — route order fix (DELETE banned-ips)
+
+**Verification:** 637 pass, 5 fail (pre-existing, no regressions), 9/9 Vue API tests pass, clean build
+
+---
+
+### Vue3 Frontend — Remove Graph, Remove File Share Backend, Fix Icons/Buttons/Download, Add Tag Filter
+
+**Timestamp:** 2026-07-19 19:15
+
+**Bug:** Multiple issues: sidebar icons invisible (Font Awesome not imported), BuildView buttons misaligned (missing `btn-xs` class), client download broken (popup blocker), graph removed per user request, file share routes removed from backend, no tag filtering.
+
+**Root cause:** Font Awesome CSS was never imported into the Vue SPA. Button sizing classes (`btn-xs`, `badge-xs`) were referenced but never defined in CSS. Download used `window.open()` which is blocked by popup blockers. Graph and file share features were user-requested removals.
+
+**Fix:**
+- **main.ts:** Added `import "@fortawesome/fontawesome-free/css/all.min.css"` — all icons now render across entire frontend
+- **main.css:** Added `.btn-xs` (4px 8px, 0.75rem, 8px radius) and `.badge-xs` (0.625rem, 2px 6px) CSS classes
+- **BuildView.vue:** All action buttons now use consistent `btn btn-sm` sizing; start build changed from `btn btn-primary` (default) to `btn btn-primary btn-sm`; build history download/delete buttons now use `.btn btn-xs` instead of raw inline styles
+- **BuildView.vue:** Replaced `window.open('_blank')` download with `api.downloadBlob()` + anchor click — avoids popup blockers, includes credentials
+- **GraphView:** Removed from frontend (router, constants, api client, test routes) and backend (misc-routes /api/client-graph endpoint, buildClientGraph import, page-routes /graph)
+- **File Share:** Removed backend routes (`handleFileShareRoutes` import + route registration in main-server.ts), page route (/file-share), cleanup on startup. Kept DB schema and build-process integration (used for build artifact uploads)
+- **DashboardView.vue:** Added tag filter input (`<input v-model="tagFilter">` with debounced search)
+- **client-routes.ts:** Added `tag` query param parsing → `tagFilter`
+- **types.ts:** Added `tagFilter?: string` to `ListFilters`
+- **repositories.ts:** Added tag filter SQL: `LOWER(COALESCE(c.custom_tag, '')) LIKE ?`
+
+**Files modified (12 files):**
+- `Goylord-Server/frontend/src/main.ts` — Font Awesome CSS import
+- `Goylord-Server/frontend/src/assets/styles/main.css` — btn-xs, badge-xs classes
+- `Goylord-Server/frontend/src/views/BuildView.vue` — uniform buttons, fetch download
+- `Goylord-Server/frontend/src/views/DashboardView.vue` — tag filter
+- `Goylord-Server/frontend/src/router/index.ts` — removed GraphView
+- `Goylord-Server/frontend/src/lib/constants.ts` — removed graph nav item
+- `Goylord-Server/frontend/src/api/client.ts` — removed graph API method
+- `Goylord-Server/src/server/routes/misc-routes.ts` — removed /api/client-graph endpoint + import
+- `Goylord-Server/src/server/routes/page-routes.ts` — removed /graph and /file-share page routes
+- `Goylord-Server/src/server/routes/client-routes.ts` — added tag filter query param
+- `Goylord-Server/src/db/repositories.ts` — added tag filter SQL clause
+- `Goylord-Server/src/types.ts` — added tagFilter to ListFilters
+- `Goylord-Server/src/main-server.ts` — removed file-share route import + registration + startup cleanup
+- `test-vue-api.spec.ts` — removed /app/graph route
+
+**Verification:** 637 pass, 5 fail (pre-existing, no regressions), 9/9 Vue API tests pass, clean build (no cytoscape chunk)
+
+---
+
+### Vue3 BuildView Disappearance Bug Fix — Replace label+hidden checkbox with div+click handlers
+
+**Timestamp:** 2026-07-20 14:35
+
+**Bug:** Clicking a platform checkbox in BuildView causes the entire builder UI to disappear in the browser. The vitest tests pass (jsdom), but the real browser exhibits the issue.
+
+**Root cause:** The `<label>` element wrapping a hidden `<input type="checkbox" style="display:none">` pattern triggers quirky browser behavior. Some browsers dispatch unexpected events or default label-click behavior that interferes with Vue's reactivity and rendering. The `<label>` implicitly associates with the hidden checkbox, and the browser's default action can cause the checkbox to toggle outside Vue's control, leading to an inconsistent state that crashes the component render.
+
+**Fix:**
+- **BuildView.vue:** Replaced all `<label>` + hidden `<input type="checkbox" v-model>` patterns with `<div>` + `@click.stop="togglePlatform(value)"` / `@click.stop="togglePersistence(value)"` handlers
+- Added `togglePlatform(value)` and `togglePersistence(value)` functions that manually splice the reactive arrays
+- Added `role="checkbox"`, `aria-checked`, `:data-platform`, `tabindex="0"`, and `@keydown.space.prevent` for accessibility
+- Added `.stop` modifier on click to prevent event propagation
+
+**Files modified (2 files):**
+- `Goylord-Server/frontend/src/views/BuildView.vue` — platform and persistence checkbox pattern replaced
+- `Goylord-Server/frontend/src/__tests__/BuildView.test.ts` — updated to find `div[data-platform]` instead of `label` with hidden `input`
+
+**Verification:** 637 pass, 5 fail (pre-existing), 15/15 vitest BuildView tests pass
+
+---
+
+### Vue3 Session Fixes — MetricsView perf, ScriptsView fallback, PluginsView keys, SettingsView expansion, AppSelect, test infra
+
+**Timestamp:** 2026-07-20 15:00
+
+**Bug:** Multiple user-reported issues: Metrics tab laggy/slow, script editor had no text field and wrong background color, plugins menu missing public key management, settings tab had fewer settings than original, dropdowns look bad (native browser UI).
+
+**Root cause:** MetricsView destroyed/recreated all Chart.js instances every 15s cycle + globe animation not throttled. ScriptsView Monaco fallback textarea was hidden behind `v-if="mode !== 'code'"` conditional. PluginsView lacked trusted keys management entirely. SettingsView only had basic fields, missing 60+ fields from old frontend. Native `<select>` elements look inconsistent across browsers.
+
+**Fix:**
+
+- **MetricsView.vue (565 lines):** Charts created ONCE via `chartsInitialized` flag; `initCharts()` short-circuits to `updateCharts()` on subsequent calls; all charts use `animation: false` and `.update('none')` for zero-animation redraw; `GLOBE_FRAME_MS = 32` throttle on globe spin; `visibilitychange` listener pauses refresh timer and globe RAF when tab hidden; 9 charts (clients, commands, bandwidth, HTTP req/latency, memory, event loop, sessions, OS)
+
+- **ScriptsView.vue (411 lines):** Fixed textarea fallback always visible when Monaco not loaded (`v-if="mode === 'code' && !monacoReady"`); background set to `#020617` (slate-950); JetBrains Mono font; `monacoReady`/`monacoLoading` state tracking
+
+- **PluginsView.vue (273 lines):** Added Trusted Signing Keys management section (fetch `GET /api/plugins/trusted-keys`, add via `POST`, remove via `DELETE /:fingerprint`); enable confirmation now sends `confirmed: true`; fingerprint display on plugin cards; trust badge for unsigned plugins; `loadTrustedKeys()` with 403 handling
+
+- **SettingsView.vue (549 lines):** Added 60+ missing fields: Security Policy (session TTL, login attempts, lockout, MFA enforcement), TLS/Certbot (full certbot config, auto-setup, cert download), OIDC (15 fields: redirect URI, auth method, default role, email domains, group claims), Appearance (15 fields: sign-in page, navigation, footer, custom CSS, background), Chat, Registration, Build Limits, Server Health, Profiler; `loadAll()` parallel-fetches 7 endpoints
+
+- **AppSelect.vue (177 lines, NEW):** Custom dropdown component replacing native `<select>`; searchable, keyboard navigable, dropdown animation, scoped dark theme styling with glassmorphism
+
+- **vitest.config.ts (19 lines, NEW):** Vitest config with jsdom env, globals, `@` alias, setup file reference
+
+- **setup.ts (116 lines, NEW):** Comprehensive API mocks: 15 API modules, 68 mock functions, realistic default shapes for all endpoints
+
+**Files modified/created (9 files):**
+- `Goylord-Server/frontend/src/views/MetricsView.vue` — performance fix
+- `Goylord-Server/frontend/src/views/ScriptsView.vue` — textarea fallback fix
+- `Goylord-Server/frontend/src/views/PluginsView.vue` — trusted keys management
+- `Goylord-Server/frontend/src/views/SettingsView.vue` — 60+ fields expansion
+- `Goylord-Server/frontend/src/components/ui/AppSelect.vue` — NEW custom dropdown
+- `Goylord-Server/frontend/vitest.config.ts` — NEW test config
+- `Goylord-Server/frontend/src/__tests__/setup.ts` — NEW test mocks
+- `Goylord-Server/frontend/src/__tests__/BuildView.test.ts` — 15 interaction tests
+
+**Verification:** 637 pass, 5 fail (pre-existing), 15/15 vitest BuildView tests pass, clean build
+
+---
+
+### AppSelect.vue — Replace all 22 native <select> elements across 13 views
+
+**Timestamp:** 2026-07-20 15:45
+
+**Bug:** Native browser `<select>` elements look inconsistent across browsers and don't match the dark theme design system.
+
+**Root cause:** Native `<select>` uses OS-default rendering which clashes with the custom dark UI.
+
+**Fix:**
+- Replaced all 22 native `<select>` elements across 13 view files with `<AppSelect>` custom dropdown component
+- Added `import AppSelect` to all 13 files
+- Converted all `<option>` lists to `:options="[{ value, label }]"` prop format
+- Added `searchable` prop to long lists (Dashboard groups, Build profiles, Socks5 clients, SolPublish endpoints, UserClientAccess user/client pickers)
+- Added `size="sm"` prop for compact toolbar selects (Dashboard filters, Build output ext, Scripts type, etc.)
+- Wired `@update:modelValue` for Dashboard filter auto-fetch and BuildView profile loading
+- Plugin settings select uses `:modelValue` + `@update:modelValue` pattern (non-v-model)
+- Zero native `<select>` remaining in views
+
+**Files modified (13 files):**
+- `frontend/src/views/DashboardView.vue` — 5 selects (status, OS, group, webcam, sort)
+- `frontend/src/views/BuildView.vue` — 3 selects (profile, plugin settings, output extension)
+- `frontend/src/views/DeployView.vue` — 2 selects (OS filter, auto-deploy trigger)
+- `frontend/src/views/SettingsView.vue` — 2 selects (OIDC auth method, default role)
+- `frontend/src/views/UserClientAccessView.vue` — 2 selects (user picker, client picker)
+- `frontend/src/views/SolPublishView.vue` — 2 selects (RPC endpoint, balance RPC)
+- `frontend/src/views/VoiceView.vue` — 1 select (mic/desktop)
+- `frontend/src/views/WebcamView.vue` — 1 select (device picker)
+- `frontend/src/views/ScreenshotsView.vue` — 1 select (tile size)
+- `frontend/src/views/ScriptsView.vue` — 1 select (script type)
+- `frontend/src/views/Socks5View.vue` — 1 select (client picker)
+- `frontend/src/views/UsersView.vue` — 1 select (role picker)
+
+**Verification:** 637 pass, 5 fail (pre-existing), 15/15 vitest tests pass, clean build (116 modules, 3.29s), zero native `<select>` in views
+
+### BuildView Platform Fix + ScriptsView Auto-Task Trigger Picker + Sidebar Color Alignment
+
+**Timestamp:** 2026-07-20 15:16
+
+**Bug:**
+1. BuildView platform checkboxes still disappearing on click despite previous div+click fix — `<div>` elements had browser quirks with `role="checkbox"` and `@click.stop`
+2. ScriptsView auto-task creation hardcoded `trigger: 'on_connect'` with no UI to select timing or OS filter
+3. Sidebar background `rgba(2,8,22,0.97)` ≈ `#020516` didn't match AppLayout `#0a0d14`, causing visible color seam
+
+**Root cause:**
+1. `<div>` elements with ARIA roles can have unpredictable browser click behavior; `restoreFromStorage` didn't validate `platforms` is an array
+2. Auto-task creation was a one-line `api.post` with no UI for trigger/OS selection
+3. Two different background colors used in adjacent layout components
+
+**Fix:**
+- **BuildView:** Converted platform and persistence checkboxes from `<div>` to `<button type="button">` — native buttons have predictable click behavior. Added `try-catch` to `togglePlatform()`, array validation in `restoreFromStorage()`, and `String()` wrapper on `aria-checked` attributes. Updated test selectors from `div[data-platform]` to `button[data-platform]`.
+- **ScriptsView:** Added `TRIGGER_OPTIONS` (3 triggers: Every Connection, First Connection, Once per Client), `OS_FILTER_OPTIONS` (6 OSes), `autoTaskTrigger`/`autoTaskOsFilter` state. Created full auto-task creation modal with trigger radio buttons, OS filter chips, task name input. Added trigger display to sidebar auto-task list. Button now opens modal instead of immediate creation.
+- **Sidebar/AppLayout:** Aligned Sidebar background from `rgba(2,8,22,0.97)` to `#0a0d14`; topbar from `rgba(8,12,24,0.72)` to `rgba(10,13,20,0.85)`.
+
+**Files modified:**
+- `frontend/src/views/BuildView.vue` — `<div>` → `<button>` for platforms/persistence, defensive togglePlatform, array validation
+- `frontend/src/views/ScriptsView.vue` — Trigger picker modal, OS filter, trigger display in sidebar
+- `frontend/src/components/layout/Sidebar.vue` — Background color aligned to `#0a0d14`
+- `frontend/src/components/layout/AppLayout.vue` — Topbar background aligned to `rgba(10,13,20,0.85)`
+- `frontend/src/__tests__/BuildView.test.ts` — Updated selectors from `div[data-platform]` to `button[data-platform]`
+
+**Verification:** 637 pass, 5 fail (pre-existing), 45/45 frontend vitest tests pass, clean build
+
+---
+
+### Vue3 Session 2 — Console xterm.js, Voice PCM, Process Memory, File Context Menu, Remove from Dashboard, Settings Expansion
+
+**Timestamp:** 2026-07-20 18:00
+
+**Bug:** Console spammed ANSI escape codes instead of rendering properly, Voice tried `decodeAudioData()` on raw PCM, Processes showed memory as "346440.0 GB", File Browser had no right-click menu or upload, no way to remove clients from dashboard, and Settings was missing 20+ fields vs old UI.
+
+**Root cause:**
+1. Console used plain `<pre>` with `textContent` — no terminal emulator, no ANSI interpretation
+2. Voice tried `decodeAudioData()` on raw PCM Int16 audio from the server — Chrome can't decode raw PCM
+3. Processes treated server's byte values as MB (`formatMem` with `toFixed(1)`) — server sends bytes not MB
+4. File Browser had no context menu implementation (old UI has download/rename/execute/delete/mkdir)
+5. Dashboard had no "Remove from Dashboard" button
+6. Settings only had 5 tabs; old UI has 12+ sections including Input Archive, Thumbnails, Build Rate Limit fields, Registration config
+
+**Fix:**
+- **ConsoleView.vue:** Complete rewrite using `@xterm/xterm` v5.5.0 + `@xterm/addon-fit` + `@xterm/addon-web-links`. xterm theme matches old UI (`#050913` bg, `#e8edf2` fg, `#6ee7b7` cursor). Windows targets use `windowsPty: {pty: "conpty"}` for proper ANSI handling. Debounced resize (120ms). Proper cleanup on unmount.
+- **VoiceView.vue:** Replaced `decodeAudioData()` with raw PCM Int16 → Float32 conversion, linear interpolation upsampling 16kHz → AudioContext sample rate, `AudioBufferSourceNode` playback through `AnalyserNode`
+- **ProcessesView.vue:** Replaced `formatMem(mb)` with `formatBytes(bytes)` treating server values as bytes (not MB). BigInt masking: `Number(BigInt(bytes) & BigInt(0xFFFFFFFFFFF))`. Thresholds: green <100MB, amber <512MB, red ≥512MB
+- **FileBrowserView.vue:** Added right-click context menu with Teleport to body. File menu (Download/Rename/Execute/Silent Execute/Delete), folder menu (Open/Rename/Delete), empty space menu (Upload File/New Folder/Refresh). Upload via hidden file input + base64-encoded WS `file_upload` message.
+- **DashboardView.vue:** Added "Remove from Dashboard" context menu item (offline clients only). Calls `DELETE /api/clients/{id}` via `clientApi.removeClient()`. Rose-colored danger styling.
+- **SettingsView.vue:** Added Input Archive section (enabled, retentionDays, maxFileBytes, pollIntervalSeconds), Thumbnails section (dashboardEnabled, wallEnabled), Build Limits (maxBuildsPerHour, maxConcurrentPerUser, globalMaxConcurrent), Registration (defaultRole, maxUsersTotal, defaultGroupIds), Appearance (tabName, iconClass, logoUrl, logoAlt, heroImageUrl, heroImageAlt)
+- **api/client.ts:** Added `removeClient()` method. Fixed duplicate `command` key warning (removed redundant declaration).
+
+**Files modified (7 files):**
+- `Goylord-Server/frontend/src/views/ConsoleView.vue` — xterm.js rewrite
+- `Goylord-Server/frontend/src/views/VoiceView.vue` — PCM Int16 playback
+- `Goylord-Server/frontend/src/views/ProcessesView.vue` — formatBytes for memory
+- `Goylord-Server/frontend/src/views/FileBrowserView.vue` — right-click context menu + upload
+- `Goylord-Server/frontend/src/views/DashboardView.vue` — remove from dashboard
+- `Goylord-Server/frontend/src/views/SettingsView.vue` — 20+ missing fields
+- `Goylord-Server/frontend/src/api/client.ts` — removeClient, dedup fix
+
+**Verification:** 637 pass, 5 fail (pre-existing). Build clean. Frontend builds with xterm.js + msgpack.

@@ -82,7 +82,6 @@ type QueryClientPageDef = {
 /** Static pages: each entry maps a URL path to its HTML file + access rules. */
 const STATIC_PAGES: StaticPageDef[] = [
   { path: "/metrics",            file: "metrics.html",             access: "any",              checkPasswordChange: true },
-  { path: "/graph",              file: "graph.html",               access: "any",              checkPasswordChange: true },
   { path: "/screenshots",        file: "screenshots.html",         access: "no-viewer",        checkPasswordChange: true },
   { path: "/settings",           file: "settings.html",            access: "any",              checkPasswordChange: true },
   { path: "/logs",               file: "logs.html",                access: "any",              checkPasswordChange: true, permission: "audit:view" },
@@ -95,7 +94,6 @@ const STATIC_PAGES: StaticPageDef[] = [
   { path: "/scripts",            file: "scripts.html",             access: "no-viewer" },
   { path: "/deploy",             file: "deploy.html",              access: "admin" },
   { path: "/socks5-manager",     file: "socks5-manager.html",      access: "no-viewer",        checkPasswordChange: true },
-  { path: "/file-share",          file: "file-share.html",          access: "no-viewer",        checkPasswordChange: true },
   { path: "/purgatory",          file: "purgatory.html",           access: "admin-or-operator", checkPasswordChange: true },
 ];
 

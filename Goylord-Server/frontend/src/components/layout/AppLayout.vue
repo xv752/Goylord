@@ -46,7 +46,7 @@ const ui = useUiStore();
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; gap: 14px;
   padding: 14px 20px;
-  background: rgba(8, 12, 24, 0.72);
+  background: rgba(10, 13, 20, 0.85);
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
   backdrop-filter: blur(8px);
 }

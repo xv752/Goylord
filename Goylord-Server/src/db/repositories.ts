@@ -638,6 +638,7 @@ export function listClients(filters: ListFilters): ListResult {
     gpuFilter,
     ramMin,
     ramMax,
+    tagFilter,
   } = filters;
   const where: string[] = [];
   const params: any[] = [];
@@ -740,6 +741,11 @@ export function listClients(filters: ListFilters): ListResult {
   if (typeof ramMax === "number") {
     where.push(`CAST(REPLACE(REPLACE(LOWER(COALESCE(c.ram, '99999')), ' gb', ''), ' mb', '') AS REAL) <= ?`);
     params.push(ramMax);
+  }
+
+  if (tagFilter) {
+    where.push("LOWER(COALESCE(c.custom_tag, '')) LIKE ?");
+    params.push(`%${tagFilter.toLowerCase()}%`);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

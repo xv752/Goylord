@@ -33,21 +33,21 @@ export const clientApi = {
     const qs = new URLSearchParams(params).toString();
     return request<PaginatedClients>(`/clients${qs ? "?" + qs : ""}`);
   },
-  get: (id: string) => request<Client>(`/clients/${id}`),
-  update: (id: string, data: Partial<Client>) => request<Client>(`/clients/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
-  delete: (id: string) => request(`/clients/${id}`, { method: "DELETE" }),
+  command: (id: string, action: string, payload?: Record<string, unknown>) =>
+    request(`/clients/${id}/command`, { method: "POST", body: JSON.stringify({ action, ...payload }) }),
+  requestThumbnail: (id: string) => request(`/clients/${id}/thumbnail`, { method: "POST", headers: { "x-goylord-thumbnail-source": "manual" } }),
+  setNickname: (id: string, nickname: string) => request(`/clients/${id}/nickname`, { method: "PATCH", body: JSON.stringify({ nickname }) }),
+  setTag: (id: string, tag: string, note: string) => request(`/clients/${id}/tag`, { method: "PATCH", body: JSON.stringify({ tag, note }) }),
+  setBookmark: (id: string, bookmarked: boolean) => request(`/clients/${id}/bookmark`, { method: "PATCH", body: JSON.stringify({ bookmarked }) }),
+  requestLogs: (id: string, limit?: number) => request(`/clients/${id}/logs`, { method: "POST", body: JSON.stringify({ limit }) }),
+  ban: (id: string) => request(`/clients/${id}/ban`, { method: "POST" }),
+  removeClient: (id: string) => request(`/clients/${id}`, { method: "DELETE" }),
   hardwareOptions: () => request<HardwareOptions>("/clients/hardware-options"),
   countries: () => request<string[]>("/clients/countries"),
-  command: (id: string, command: string, payload?: Record<string, unknown>) =>
-    request(`/clients/${id}/command`, { method: "POST", body: JSON.stringify({ command, ...payload }) }),
   bulk: (action: string, clientIds: string[], extra?: Record<string, unknown>) =>
     request("/clients/bulk", { method: "POST", body: JSON.stringify({ action, clientIds, ...extra }) }),
   bulkGroup: (clientIds: string[], groupId: string) =>
     request("/clients/bulk-group", { method: "POST", body: JSON.stringify({ clientIds, groupId }) }),
-  graph: (params?: Record<string, string>) => {
-    const qs = params ? new URLSearchParams(params).toString() : "";
-    return request("/clients/graph" + (qs ? "?" + qs : ""));
-  },
 };
 
 export const groupApi = {

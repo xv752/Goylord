@@ -131,8 +131,9 @@ export async function handleClientRoutes(
     const ramMaxRaw = Number(url.searchParams.get("ramMax"));
     const ramMin = Number.isFinite(ramMinRaw) && ramMinRaw > 0 ? ramMinRaw : undefined;
     const ramMax = Number.isFinite(ramMaxRaw) && ramMaxRaw > 0 ? ramMaxRaw : undefined;
+    const tagFilter = (url.searchParams.get("tag") || "").trim();
 
-    const hwFilters = { cpuFilter: cpuFilter || undefined, gpuFilter: gpuFilter || undefined, ramMin, ramMax };
+    const hwFilters = { cpuFilter: cpuFilter || undefined, gpuFilter: gpuFilter || undefined, ramMin, ramMax, tagFilter: tagFilter || undefined };
 
     if (user.role === "admin") {
       const result = listClients({ page, pageSize, search, sort, statusFilter, osFilter, countryFilter, enrollmentFilter, groupFilter, webcamFilter, ...hwFilters });

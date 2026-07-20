@@ -52,7 +52,6 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Monitoring",
     items: [
       { path: "/metrics", label: "Metrics", icon: "fa-solid fa-chart-line", iconColor: "text-emerald-400" },
-      { path: "/graph", label: "Graph", icon: "fa-solid fa-diagram-project", iconColor: "text-cyan-400" },
       { path: "/screenshots", label: "Screenshot Wall", icon: "fa-solid fa-images", iconColor: "text-sky-400", access: "no-viewer" },
     ],
   },

@@ -18,13 +18,14 @@ import { decodeMessage, encodeMessage, type WireMessage, type Hello, type Ping }
 import * as sessionManager from "../../sessions/sessionManager";
 import type { SocketData } from "../../sessions/types";
 import type { ClientInfo } from "../../types";
-import { clearClientSyncState, handleFrame, handleHello, handlePing, handlePong, handleScreenshotThumbnailResult } from "../../wsHandlers";
+import { clearClientSyncState, handleFrame, handleHello, handlePing, handlePong, handleScreenshotThumbnailResult, shouldRelayFrameToViewers } from "../../wsHandlers";
 import { queueClientDbUpdate, scheduleQueuedClientDbFlush } from "../../client-db-sync";
 import { getMaxPayloadLimit, getMessageByteLength, isAllowedClientMessageType } from "../../wsValidation";
 import { stopAllProxiesForClient } from "../socks5-proxy-manager";
 import { verifyBuildToken, isBuildBanned } from "../build-signing";
 import { clearThumbnail } from "../../thumbnails";
 import { stopRemoteDesktopRecording } from "../rd-recording";
+import { requestRemoteDesktopKeyframeAfterScreenshot, handleDesktopCursor } from "../ws-console-rd-backstage";
 import {
   isAuthenticatedViewerRole,
   registerViewerSocket,
@@ -814,13 +815,14 @@ export async function handleWebSocketMessage(
             }
           }
         }
-        if (handleFrame(client, payload)) {
+        if (handleFrame(client, payload, shouldRelayFrameToViewers(payload))) {
           try { ws.send(encodeMessage({ type: "frame_ack" })); } catch {}
         }
         break;
       case "screenshot_result":
         handleScreenshotThumbnailResult(client, payload);
         deps.handleNotificationScreenshotResult(client.id, payload);
+        requestRemoteDesktopKeyframeAfterScreenshot(client.id);
         break;
       case "console_output":
         deps.handleConsoleOutput(client.id, payload);
@@ -830,6 +832,9 @@ export async function handleWebSocketMessage(
         break;
       case "desktop_stream_stats":
         deps.handleDesktopStreamStats(client.id, payload);
+        break;
+      case "desktop_cursor":
+        handleDesktopCursor(client.id, payload);
         break;
       case "file_list_result":
       case "file_download":

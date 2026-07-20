@@ -85,7 +85,7 @@ async function handleLogout() {
 .sb {
   position: fixed; top: 0; left: 0; z-index: 50;
   width: 224px; height: 100dvh;
-  background: rgba(2, 8, 22, 0.97);
+  background: #0a0d14;
   border-right: 1px solid rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(4px);
   transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1);

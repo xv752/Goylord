@@ -81,6 +81,7 @@ export type ListFilters = {
   gpuFilter?: string;
   ramMin?: number;
   ramMax?: number;
+  tagFilter?: string;
 };
 
 export type ListItem = Omit<ClientInfo, 'ws'> & {

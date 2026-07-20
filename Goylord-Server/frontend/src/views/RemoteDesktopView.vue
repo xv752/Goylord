@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { clientApi } from "@/api/client";
 import { useWebSocket } from "@/composables/useWebSocket";
-import type { Client } from "@/api/types";
 
 const route = useRoute();
 const router = useRouter();
 const clientId = route.params.id as string;
 
-const client = ref<Client | null>(null);
+const clientHost = ref("");
+const clientOs = ref("");
 const connected = ref(false);
 const statusText = ref("Connecting...");
 const canvasEl = ref<HTMLCanvasElement | null>(null);
@@ -28,7 +27,7 @@ let streamActive = false;
 
 function wsUrl(): string {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${location.host}/api/clients/${clientId}/rd/ws`;
+  return `${proto}://${location.host}/api/clients/${encodeURIComponent(clientId)}/rd/ws`;
 }
 
 function handleMessage(msg: Record<string, unknown>) {
@@ -36,6 +35,8 @@ function handleMessage(msg: Record<string, unknown>) {
     connected.value = true;
     statusText.value = "Connected";
     streamActive = true;
+    clientHost.value = (msg.host as string) || "";
+    clientOs.value = (msg.os as string) || "";
     ws.sendJson({ type: "desktop_start" });
   } else if (msg.type === "status") {
     const st = msg.status as string;
@@ -173,13 +174,7 @@ function reconnect() {
   ws.connect(wsUrl(), handleMessage);
 }
 
-onMounted(async () => {
-  try {
-    client.value = await clientApi.get(clientId);
-  } catch {
-    /* silent */
-  }
-
+onMounted(() => {
   fpsTimer = setInterval(() => {
     fps.value = fpsFrameCount;
     fpsFrameCount = 0;
@@ -203,12 +198,8 @@ onUnmounted(() => {
       <button @click="router.back()" class="text-slate-400 hover:text-slate-200 transition-colors">
         <i class="fa-solid fa-arrow-left"></i>
       </button>
-      <div v-if="!client" class="text-sm text-slate-400">Loading...</div>
-      <template v-else>
-        <h1 class="text-lg font-semibold text-slate-100">Remote Desktop</h1>
-        <span class="text-sm text-slate-400">{{ client.nickname || client.host }}</span>
-        <span class="text-xs text-slate-600">{{ client.user }}</span>
-      </template>
+      <h1 class="text-lg font-semibold text-slate-100">Remote Desktop</h1>
+      <span v-if="clientHost" class="text-sm text-slate-400">{{ clientHost }}</span>
       <span
         :class="[
           'text-xs px-2 py-0.5 rounded-full',

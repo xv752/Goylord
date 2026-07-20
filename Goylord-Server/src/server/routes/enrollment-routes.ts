@@ -253,6 +253,36 @@ export async function handleEnrollmentRoutes(
     return Response.json({ ok: true, status: "pending" });
   }
 
+  // DELETE /api/enrollment/banned-ips?ip=...  (MUST be before generic DELETE :id to avoid route shadowing)
+  if (req.method === "DELETE" && url.pathname === "/api/enrollment/banned-ips") {
+    const user = await authenticateRequest(req);
+    if (!user) return new Response("Unauthorized", { status: 401 });
+    try {
+      requirePermission(user, "network:manage-bans");
+    } catch (error) {
+      if (error instanceof Response) return error;
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    const ipToUnban = (url.searchParams.get("ip") || "").trim();
+    if (!ipToUnban) return Response.json({ error: "Missing ip parameter" }, { status: 400 });
+    if (!/^[0-9a-fA-F:.]{3,64}$/.test(ipToUnban)) return Response.json({ error: "Invalid IP format" }, { status: 400 });
+    if (!isIpBanned(ipToUnban)) return Response.json({ error: "IP is not banned" }, { status: 404 });
+
+    unbanIp(ipToUnban);
+
+    logAudit({
+      timestamp: Date.now(),
+      username: user.username,
+      ip: "server",
+      action: AuditAction.ENROLLMENT_BULK,
+      success: true,
+      details: JSON.stringify({ unbannedIp: ipToUnban }),
+    });
+
+    return Response.json({ ok: true });
+  }
+
   // DELETE /api/enrollment/:id — fully delete client from DB
   const deleteMatch = url.pathname.match(/^\/api\/enrollment\/([^/]+)$/);
   if (req.method === "DELETE" && deleteMatch) {
@@ -461,36 +491,6 @@ export async function handleEnrollmentRoutes(
     }
 
     return Response.json({ items: listBannedIps() });
-  }
-
-  // DELETE /api/enrollment/banned-ips?ip=...
-  if (req.method === "DELETE" && url.pathname === "/api/enrollment/banned-ips") {
-    const user = await authenticateRequest(req);
-    if (!user) return new Response("Unauthorized", { status: 401 });
-    try {
-      requirePermission(user, "network:manage-bans");
-    } catch (error) {
-      if (error instanceof Response) return error;
-      return new Response("Forbidden", { status: 403 });
-    }
-
-    const ipToUnban = (url.searchParams.get("ip") || "").trim();
-    if (!ipToUnban) return Response.json({ error: "Missing ip parameter" }, { status: 400 });
-    if (!/^[0-9a-fA-F:.]{3,64}$/.test(ipToUnban)) return Response.json({ error: "Invalid IP format" }, { status: 400 });
-    if (!isIpBanned(ipToUnban)) return Response.json({ error: "IP is not banned" }, { status: 404 });
-
-    unbanIp(ipToUnban);
-
-    logAudit({
-      timestamp: Date.now(),
-      username: user.username,
-      ip: "server",
-      action: AuditAction.ENROLLMENT_BULK,
-      success: true,
-      details: JSON.stringify({ unbannedIp: ipToUnban }),
-    });
-
-    return Response.json({ ok: true });
   }
 
   // POST /api/enrollment/ban-ip (manual IP ban)

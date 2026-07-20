@@ -9,6 +9,7 @@ export type MessageKind =
   | "command_result"
   | "desktop_encoder_capabilities"
   | "desktop_stream_stats"
+  | "desktop_cursor"
   | "client_logs_result"
   | "screenshot_result"
   | "frame"
@@ -242,6 +243,19 @@ export type DesktopStreamStats = {
   sendMs: number;
   totalMs: number;
   transport: "websocket" | "webrtc" | string;
+};
+export type DesktopCursor = {
+  type: "desktop_cursor";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  visible: boolean;
+  cursorWidth?: number;
+  cursorHeight?: number;
+  hotspotX?: number;
+  hotspotY?: number;
+  image?: Uint8Array;
 };
 export type Status = {
   type: "status";
@@ -553,6 +567,7 @@ export type WireMessage =
   | Frame
   | FrameAck
   | DesktopStreamStats
+  | DesktopCursor
   | Status
   | ConsoleOutput
   | FileListResult

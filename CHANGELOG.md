@@ -390,3 +390,113 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 - **Vue Frontend:** 9/9 API+SPA tests pass, build succeeds (162KB JS, 73KB CSS, 104 modules)
 - **Go Client:** `go build ./cmd/agent/` — builds clean, no race conditions detected
 - **Build Plugins:** 65 integration checks passed
+
+#### vue3-api-endpoint-fix — Comprehensive API endpoint audit & fix across all Vue views
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/SettingsView.vue` | frontend | Fixed 7 endpoints: MFA routes (`/api/mfa/*` not `/api/auth/mfa/*`), password (`/api/users/:id/password`), TLS (`/api/settings/tls`), security/OIDC/appearance/chat field mapping, enrollment settings (`POST` not `PUT`), build limits (`/api/settings/build-rate-limit`) |
+| `frontend/src/views/UsersView.vue` | frontend | Fixed 4 endpoints: removed non-existent `PUT /api/users/:id`, use granular `/role` + `/password`, split permissions into `/permission-groups` + `/feature-permissions`, fixed group update to `PATCH` |
+| `frontend/src/views/PluginsView.vue` | frontend | Fixed 4 bugs: unwrap `{ plugins }` response, remove non-existent `/disable` (use `/enable` with body), add missing `{ enabled }` and `{ autoLoad }` bodies |
+| `frontend/src/views/ScriptsView.vue` | frontend | Fixed 2 bugs: wrong body key `command` → `action`, empty content rejected by server |
+| `frontend/src/views/Socks5View.vue` | frontend | Fixed 1 bug: proxy start success message showed undefined port |
+| `frontend/src/views/LogsView.vue` | frontend | Fixed 1 bug: date filtering sent ISO strings but server expects epoch milliseconds |
+| `frontend/src/views/PurgatoryView.vue` | frontend | Fixed 1 bug: "Unless Suspicious" toggle also toggled `requireApproval` |
+| `src/server/routes/enrollment-routes.ts` | server | Fixed route shadowing: `DELETE /api/enrollment/banned-ips` unreachable due to generic `DELETE /api/enrollment/:id` regex matching first |
+
+| Severity | Count |
+|----------|-------|
+| Critical | 8 |
+| High | 5 |
+| Medium | 2 |
+| Low | 1 |
+
+#### vue3-icons-buttons-tagfilter — Font Awesome, uniform buttons, fetch download, tag filter, graph/fileshare removal
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/main.ts` | frontend | Added `@fortawesome/fontawesome-free/css/all.min.css` import — all sidebar and view icons now render |
+| `frontend/src/assets/styles/main.css` | frontend | Added `.btn-xs` (4px 8px, 8px radius) and `.badge-xs` (0.625rem, 2px 6px) CSS classes |
+| `frontend/src/views/BuildView.vue` | frontend | Uniform `btn-sm` sizing for all action buttons, `.btn-xs` for profile/history buttons, fetch-based download replacing `window.open` |
+| `frontend/src/views/DashboardView.vue` | frontend | Added tag filter input with debounced search, passes `tag` param to API |
+| `frontend/src/router/index.ts` | frontend | Removed GraphView route |
+| `frontend/src/lib/constants.ts` | frontend | Removed Graph nav item from sidebar |
+| `frontend/src/api/client.ts` | frontend | Removed graph API method |
+| `src/server/routes/misc-routes.ts` | server | Removed `/api/client-graph` endpoint and `buildClientGraph` import |
+| `src/server/routes/page-routes.ts` | server | Removed `/graph` and `/file-share` page routes |
+| `src/server/routes/client-routes.ts` | server | Added `tag` query param parsing for client tag filtering |
+| `src/db/repositories.ts` | server | Added tag filter SQL clause (`custom_tag LIKE ?`) |
+| `src/types.ts` | server | Added `tagFilter?: string` to `ListFilters` |
+| `src/main-server.ts` | server | Removed file-share route import, registration, and startup cleanup |
+| `test-vue-api.spec.ts` | tests | Removed `/app/graph` from SPA route test list |
+
+#### vue3-buildview-fix — BuildView disappearance bug fix + session fixes + test infra
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/BuildView.vue` | frontend | Fixed platform checkbox disappearance bug: replaced `<label>` + hidden `<input type="checkbox">` with `<div @click.stop>` handlers; added `togglePlatform()`, `togglePersistence()`, `data-platform` attrs, accessibility roles |
+| `frontend/src/__tests__/BuildView.test.ts` | tests | Rewritten with `div[data-platform]` selectors; 15 interaction tests covering platform/arch clicks, tab switching, toggles, action buttons — all passing |
+| `frontend/src/views/MetricsView.vue` | frontend | Performance fix: chart reuse via `chartsInitialized` flag, `animation: false` + `.update('none')`, `GLOBE_FRAME_MS = 32` throttle, `visibilitychange` pause |
+| `frontend/src/views/ScriptsView.vue` | frontend | Fixed textarea fallback always visible when Monaco not loaded; background `#020617`, JetBrains Mono font |
+| `frontend/src/views/PluginsView.vue` | frontend | Added Trusted Signing Keys management section (fetch/add/remove); trust badges; fingerprint display; enable confirmation |
+| `frontend/src/views/SettingsView.vue` | frontend | Added 60+ missing fields: Security Policy (11), TLS/Certbot (7), OIDC (15), Appearance (15), Chat (4), Registration (4), Build Limits (3), Server Health, Profiler |
+| `frontend/src/components/ui/AppSelect.vue` | frontend | NEW custom dropdown component: searchable, keyboard navigable, dark theme glassmorphism styling |
+| `frontend/vitest.config.ts` | tests | NEW vitest config: jsdom env, globals, `@` alias, setup file |
+| `frontend/src/__tests__/setup.ts` | tests | NEW comprehensive API mocks: 15 modules, 68 mock functions |
+
+| Severity | Count |
+|----------|-------|
+| Critical | 1 |
+| High | 2 |
+| Medium | 3 |
+| Low | 3 |
+
+#### vue3-appselect — Replace all native selects with AppSelect custom dropdown
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/DashboardView.vue` | frontend | Replaced 5 native selects (status, OS, group, webcam, sort) with AppSelect; added searchable for groups |
+| `frontend/src/views/BuildView.vue` | frontend | Replaced 3 native selects (profile, plugin settings, output extension) with AppSelect; searchable profile picker |
+| `frontend/src/views/DeployView.vue` | frontend | Replaced 2 native selects (OS filter, auto-deploy trigger) with AppSelect |
+| `frontend/src/views/SettingsView.vue` | frontend | Replaced 2 native selects (OIDC auth method, default role) with AppSelect |
+| `frontend/src/views/UserClientAccessView.vue` | frontend | Replaced 2 native selects (user picker, client picker) with AppSelect; searchable |
+| `frontend/src/views/SolPublishView.vue` | frontend | Replaced 2 native selects (RPC endpoint, balance RPC) with AppSelect; searchable |
+| `frontend/src/views/VoiceView.vue` | frontend | Replaced 1 native select (mic/desktop) with AppSelect |
+| `frontend/src/views/WebcamView.vue` | frontend | Replaced 1 native select (device picker) with AppSelect |
+| `frontend/src/views/ScreenshotsView.vue` | frontend | Replaced 1 native select (tile size) with AppSelect |
+| `frontend/src/views/ScriptsView.vue` | frontend | Replaced 1 native select (script type) with AppSelect |
+| `frontend/src/views/Socks5View.vue` | frontend | Replaced 1 native select (client picker) with AppSelect; searchable |
+| `frontend/src/views/UsersView.vue` | frontend | Replaced 1 native select (role picker) with AppSelect |
+
+| Severity | Count |
+|----------|-------|
+| Medium | 1 |
+| Low | 11 |
+
+#### vue3-build-scripts-sidebar — BuildView button fix, ScriptsView trigger picker, sidebar color alignment
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/BuildView.vue` | frontend | Converted platform/persistence checkboxes from `<div>` to `<button type="button">` for reliable click behavior; added defensive try-catch in `togglePlatform()`; array validation in `restoreFromStorage()` |
+| `frontend/src/views/ScriptsView.vue` | frontend | Added full auto-task creation modal with trigger timing picker (3 options: Every Connection, First Connection, Once per Client), OS filter chips (6 OSes), task name input; trigger display on sidebar auto-task list |
+| `frontend/src/components/layout/Sidebar.vue` | frontend | Aligned background from `rgba(2,8,22,0.97)` to `#0a0d14` to match AppLayout |
+| `frontend/src/components/layout/AppLayout.vue` | frontend | Aligned topbar background from `rgba(8,12,24,0.72)` to `rgba(10,13,20,0.85)` |
+| `frontend/src/__tests__/BuildView.test.ts` | tests | Updated selectors from `div[data-platform]` to `button[data-platform]` |
+
+| Severity | Count |
+|----------|-------|
+| High | 1 |
+| Medium | 2 |
+| Low | 2 |
+
+#### vue3-session2 — Console xterm.js, Voice PCM playback, Process memory fix, File context menu, Remove from Dashboard, Settings expansion
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `frontend/src/views/ConsoleView.vue` | frontend | Complete rewrite with @xterm/xterm v5.5.0 + FitAddon + WebLinksAddon; xterm theme (#050913 bg, #e8edf2 fg, #6ee7b7 cursor); windowsPty conpty for Windows targets; debounced resize (120ms); proper cleanup on unmount |
+| `frontend/src/views/VoiceView.vue` | frontend | Raw PCM Int16 playback: Int16→Float32 conversion, linear interpolation upsampling 16kHz→AudioContext rate, AudioBufferSourceNode + AnalyserNode (replaced broken decodeAudioData) |
+| `frontend/src/views/ProcessesView.vue` | frontend | Memory display fixed: formatBytes treating server values as bytes (not MB); BigInt masking; proper thresholds (green <100MB, amber <512MB, red ≥512MB) |
+| `frontend/src/views/FileBrowserView.vue` | frontend | Right-click context menu (Teleport to body): file menu (Download/Rename/Execute/Silent Execute/Delete), folder menu (Open/Rename/Delete), empty space menu (Upload File/New Folder/Refresh); upload via hidden file input + base64 WS |
+| `frontend/src/views/DashboardView.vue` | frontend | "Remove from Dashboard" in context menu for offline clients; DELETE /api/clients/{id}; rose-colored danger styling |
+| `frontend/src/views/SettingsView.vue` | frontend | Added Input Archive, Thumbnails, Build Limits (maxBuildsPerHour/maxConcurrentPerUser/globalMaxConcurrent), Registration (defaultRole/maxUsersTotal/defaultGroupIds), Appearance (tabName/logoUrl/heroImageUrl) sections |
+| `frontend/src/api/client.ts` | frontend | Added removeClient(); fixed duplicate command key warning |
+
+| Severity | Count |
+|----------|-------|
+| Critical | 3 |
+| High | 2 |
+| Medium | 2 |

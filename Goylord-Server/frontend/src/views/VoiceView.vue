@@ -26,14 +26,14 @@
         <div class="flex flex-wrap items-center gap-4">
           <div class="flex-1">
             <label class="mb-1 block text-xs font-medium text-slate-400">Source</label>
-            <select
+            <AppSelect
               v-model="source"
               :disabled="streaming"
-              class="w-full rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 outline-none focus:border-slate-600 disabled:opacity-50"
-            >
-              <option value="mic">Microphone</option>
-              <option value="desktop">Desktop Audio</option>
-            </select>
+              :options="[
+                { value: 'mic', label: 'Microphone' },
+                { value: 'desktop', label: 'Desktop Audio' }
+              ]"
+            />
           </div>
           <div class="pt-5">
             <button
@@ -82,6 +82,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
+import AppSelect from '../components/ui/AppSelect.vue'
 
 const route = useRoute()
 const clientId = route.params.id
@@ -118,6 +119,13 @@ function connect() {
   ws.onmessage = (ev) => {
     if (ev.data instanceof ArrayBuffer) {
       processAudioFrame(ev.data)
+    } else if (typeof ev.data === 'string') {
+      try {
+        const msg = JSON.parse(ev.data)
+        if (msg.type === 'ready') {
+          hostname.value = msg.host || msg.clientId || '---'
+        }
+      } catch {}
     }
   }
 
@@ -143,13 +151,42 @@ function processAudioFrame(buffer) {
     startVisualization()
   }
 
-  audioCtx.decodeAudioData(buffer.slice(0)).then((decoded) => {
-    const sourceNode = audioCtx.createBufferSource()
-    sourceNode.buffer = decoded
-    sourceNode.connect(analyser)
-    analyser.connect(audioCtx.destination)
-    sourceNode.start(0)
-  }).catch(() => {})
+  const int16 = new Int16Array(buffer)
+  if (int16.length === 0) return
+
+  const float32 = new Float32Array(int16.length)
+  for (let i = 0; i < int16.length; i++) {
+    float32[i] = int16[i] / 32768.0
+  }
+
+  const srcRate = 16000
+  const dstRate = audioCtx.sampleRate
+
+  let samples
+  if (srcRate === dstRate) {
+    samples = float32
+  } else {
+    const ratio = dstRate / srcRate
+    const newLen = Math.ceil(float32.length * ratio)
+    samples = new Float32Array(newLen)
+    for (let i = 0; i < newLen; i++) {
+      const srcIdx = i / ratio
+      const idx = Math.floor(srcIdx)
+      const frac = srcIdx - idx
+      samples[i] = idx + 1 < float32.length
+        ? float32[idx] * (1 - frac) + float32[idx + 1] * frac
+        : float32[idx] || 0
+    }
+  }
+
+  const audioBuffer = audioCtx.createBuffer(1, samples.length, dstRate)
+  audioBuffer.getChannelData(0).set(samples)
+
+  const source = audioCtx.createBufferSource()
+  source.buffer = audioBuffer
+  source.connect(analyser)
+  analyser.connect(audioCtx.destination)
+  source.start(0)
 }
 
 function startVisualization() {
@@ -205,15 +242,7 @@ function stopStream() {
   stopVisualization()
 }
 
-function fetchHostname() {
-  fetch(`/api/clients/${clientId}`, { credentials: 'include' })
-    .then((r) => r.json())
-    .then((d) => { hostname.value = d.nickname || d.host || d.id || '---' })
-    .catch(() => {})
-}
-
 onMounted(() => {
-  fetchHostname()
   connect()
 })
 

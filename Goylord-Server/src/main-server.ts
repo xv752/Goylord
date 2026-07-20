@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from "url";
 import path from "path";
 import fs from "fs/promises";
 import { existsSync } from "node:fs";
-import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredSharedFiles, deleteExpiredChatMessages, getClientMetricsSummary, pruneOldNotifications, isClientNotificationsMuted } from "./db";
+import { upsertClientRow, setOnlineState, listClients, markAllClientsOffline, getBuild, getAllBuilds, deleteExpiredBuilds, deleteBuild, getNotificationScreenshot, deleteClientRow, getClientIp, banIp, isIpBanned, clientExists, deleteExpiredChatMessages, getClientMetricsSummary, pruneOldNotifications, isClientNotificationsMuted } from "./db";
 import { handleFrame, handleHello, handlePing, handlePong } from "./wsHandlers";
 import { getMessageByteLength, getMaxPayloadLimit, isAllowedClientMessageType } from "./wsValidation";
 import { ClientInfo, ClientRole } from "./types";
@@ -38,7 +38,6 @@ import { handleNotificationsConfigRoutes } from "./server/routes/notifications-c
 import { handleOidcRoutes } from "./server/routes/oidc-routes";
 import { handlePageRoutes } from "./server/routes/page-routes";
 import { handlePluginRoutes } from "./server/routes/plugin-routes";
-import { handleFileShareRoutes } from "./server/routes/file-share-routes";
 import { handleUsersRoutes } from "./server/routes/users-routes";
 import { handlePermissionGroupsRoutes } from "./server/routes/permission-groups-routes";
 import { handleWebSocketClose, handleWebSocketMessage, handleWebSocketOpen } from "./server/routes/websocket-lifecycle-routes";
@@ -571,9 +570,6 @@ async function startServer() {
       mimeType,
       pluginRuntime,
     },
-    fileShare: {
-      FILE_SHARE_ROOT,
-    },
     misc: {
       CORS_HEADERS,
       SERVER_VERSION,
@@ -759,7 +755,6 @@ async function startServer() {
         (req, url, srv) => handleFileDownloadRoutes(req, url, srv as any, routeDeps.fileDownload),
         (req, url) => handleKeylogArchiveRoutes(req, url, { CORS_HEADERS }),
         (req, url) => handlePluginRoutes(req, url, routeDeps.plugin),
-        (req, url) => handleFileShareRoutes(req, url, routeDeps.fileShare),
         (req, url, srv) => handleMiscRoutes(req, url, {
           ...routeDeps.misc,
           requestIP: (srv as any).requestIP,
@@ -792,12 +787,6 @@ async function startServer() {
   
   deleteExpiredBuilds();
   logger.info(`[db] Cleaned up expired builds`);
-
-  const expiredPaths = deleteExpiredSharedFiles();
-  for (const p of expiredPaths) {
-    try { const dir = path.dirname(p); await fs.rm(dir, { recursive: true, force: true }); } catch {}
-  }
-  if (expiredPaths.length) logger.info(`[db] Cleaned up ${expiredPaths.length} expired shared files`);
 
   const chatRetentionDays = getConfig().chat?.retentionDays ?? 30;
   if (chatRetentionDays > 0) {

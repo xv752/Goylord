@@ -15,7 +15,6 @@ import SettingsView from "@/views/SettingsView.vue";
 import UsersView from "@/views/UsersView.vue";
 import ScriptsView from "@/views/ScriptsView.vue";
 import MetricsView from "@/views/MetricsView.vue";
-import GraphView from "@/views/GraphView.vue";
 import ScreenshotsView from "@/views/ScreenshotsView.vue";
 import NotificationsView from "@/views/NotificationsView.vue";
 import PurgatoryView from "@/views/PurgatoryView.vue";
@@ -65,7 +64,6 @@ const router = createRouter({
         { path: "deploy", name: "deploy", component: DeployView, meta: { access: "admin" } },
         { path: "winre", name: "winre", component: WinREView, meta: { access: "admin" } },
         { path: "metrics", name: "metrics", component: MetricsView },
-        { path: "graph", name: "graph", component: GraphView },
         { path: "settings", name: "settings", component: SettingsView },
         { path: "console/:id", name: "console", component: ConsoleView },
         { path: "remotedesktop/:id", name: "remotedesktop", component: RemoteDesktopView },
