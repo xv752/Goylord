@@ -6,6 +6,30 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 
 ## [0.0.5]
 
+#### critical-fixes-rat-ui — RD input fix, backstage latency tracking, compact RAT-style UI overhaul
+
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `public/remotedesktop.html` | frontend | Add `checked` to mouseCtrl/kbdCtrl checkboxes (input was completely broken); add `max-width: 14ch` + `overflow: hidden; text-overflow: ellipsis` to NET stat chip; change latency display from `"-- ms"` to `"--ms"` |
+| `public/backstage.html` | frontend | Change latency display from `"-- ms"` to `"--ms"` |
+| `public/assets/remotedesktop.js` | frontend | Compact `updateNetworkStats()` format (`"1.2M"` not `"1.2 Mbps"`, `"OK"` not `"Connected"`); change `updateLatency()` to `"Xms"` format (no space) |
+| `public/assets/backstage.js` | frontend | Add `input_latency` message handler; `sendCmd()` returns boolean; add `flashLaunchStatus()` for shell command feedback |
+| `public/assets/main.css` | frontend | RAT-style UI overhaul: neutralize color palette (no blue tint), flatten all gradients, remove all backdrop-blur, reduce border-radius to 0-3px, reduce padding by ~50%, remove hover lifts, kill decorative animations, remove text-shadow glows, flatten scrollbar |
+| `src/server/ws-console-rd-backstage.ts` | server | Add `backstageInputPending` map, `recordBackstageInput()`, `notifyBackstageInputLatency()`; backstage input commands now track latency with commandId |
+| `src/server/routes/websocket-lifecycle-routes.ts` | server | Add `notifyBackstageInputLatency` to deps interface and agent message dispatch |
+| `src/main-server.ts` | server | Import `notifyBackstageInputLatency` from ws-console-rd-backstage |
+
+#### frontend-ux-polish — Stats HUD layout fix, modal bug fix, CSS cleanup, custom.css 404 fix
+
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `Goylord-Server/public/remotedesktop.html` | frontend | Replaced inline FPS/latency/network stat boxes with fixed-width `.rd-stat-chip` elements using `tabular-nums`, `min-width`, and `flex-nowrap` to prevent layout reflow when values change |
+| `Goylord-Server/public/backstage.html` | frontend | Split combined FPS/latency pill into separate `.rd-stat-chip` elements matching RD style; added matching CSS with violet-tinted stat colors |
+| `Goylord-Server/public/assets/ui.js` | frontend | Fixed modal open/close using `"hidden"` class instead of `"Virtual"` (find-and-replace error) |
+| `Goylord-Server/public/assets/custom.css` | frontend | Created minimal file to eliminate 404 on all 29 HTML pages that reference it |
+| `Goylord-Server/public/assets/main.css` | frontend | Simplified `cardFlipFall` 3D uninstall animation → `cardFadeOut` fade; removed `crownBounce` animation from `.header-crown`; simplified `radioactiveShakeIntense` (2px→1px); removed `login-btn-particle` elaborate styles; changed `.login-btn:hover` from `translateY(-1px)` to `filter: brightness(1.08)`; removed `translateY(-1px)` from generic button hover |
+| `Goylord-Server/public/assets/backstage.js` | frontend | Fixed `updateFpsDisplay` — removed references to non-existent `diagnostics` object; now uses `Math.round(Number(agentValue) || 0)` directly |
+
 #### vue3-migration-phase0 — Vue 3 frontend scaffolding + File Share view
 | File(s) | Component | Description |
 |---------|-----------|-------------|
@@ -500,6 +524,16 @@ All notable changes to the Goylord project. Machine-readable format for webhook 
 | Critical | 3 |
 | High | 2 |
 | Medium | 2 |
+
+#### rewrite-v2-stripped-architecture — REWRITE.md v2.0: removed multi-user, branding, registration, file share, MFA, OIDC, 6 platform targets
+
+| File(s) | Component | Description |
+|---------|-----------|-------------|
+| `REWRITE.md` | docs | Complete rewrite to v2.0: single-admin architecture, 16 DB tables removed (36→20), ~35 config fields removed (~80→45), 6 platform targets removed (only win64/win32/linux64/linux-arm64/linux-armv7 kept), all user/permission/branding/registration/file-share/MFA/OIDC code excluded from rewrite, 25+ leftover artifacts documented as must-not-appear, agent reorganized with platform/ abstraction layer and 5-target Makefile |
+
+| Severity | Count |
+|----------|-------|
+| High | 1 |
 
 #### vue3-session3 — RemoteDesktop/Backstage full controls, Settings Health/MFA/Profiler fixes, CSP QR fix
 | File(s) | Component | Description |

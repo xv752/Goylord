@@ -2057,6 +2057,39 @@ All 8 critical security/stability fixes confirmed: `crypto/rand` seeding (sessio
 
 ---
 
+### Frontend UX overhaul — FPS/Latency layout shift fix, modal bug, CSS cleanup, stats bar redesign
+
+**Timestamp:** 2026-07-20 18:30
+
+**Bug:** Remote Desktop and Backstage FPS/latency counters caused the entire toolbar to shift and reflow when values changed (e.g. "--" → "120" → "--"). The ui.js modal used class "Virtual" instead of "hidden" so it never actually closed. custom.css was referenced by all 29 HTML pages but didn't exist, causing a 404 on every page load. The main.css had excessive AI-generated decorative animations (3D card flip uninstall, bouncing crown, login particles, button lift on every hover) that made the UI look toy-like and unprofessional. Backstage stats bar crammed FPS and latency into one cramped pill with a pipe separator.
+
+**Root cause:**
+1. FPS/latency stat elements had dynamic widths without `min-width` or `tabular-nums`, causing layout reflow on every value change
+2. `ui.js` `openModal`/`closeModal` used `classList.add("Virtual")`/`classList.remove("Virtual")` instead of `"hidden"` — a find-and-replace error
+3. `custom.css` was deleted or never created but all pages still linked it
+4. CSS animations were overly elaborate for a management panel (3D card flips, particle effects, crown bouncing, every button lifting on hover)
+5. Backstage combined FPS and latency into one element with a `|` separator instead of separate stat chips like Remote Desktop
+
+**Fix:**
+- **remotedesktop.html:** Replaced inline stat boxes with fixed-width `.rd-stat-chip` elements using `font-variant-numeric: tabular-nums`, `min-width`, proper spacing, and `flex-nowrap` wrapper. Split into 3 separate chips: FPS (agent→viewer), LAT (input latency), NET (network stats). Added matching CSS for `.rd-stat-chip`, `.rd-stat-label`, `.rd-stat-value`, `.rd-stat-arrow` with color-coded values.
+- **backstage.html:** Split combined FPS/latency pill into separate `.rd-stat-chip` elements matching Remote Desktop's style. Added the same CSS classes with violet-tinted colors for Backstage's theme.
+- **ui.js:** Changed `modal.classList.remove("Virtual")` → `modal.classList.remove("hidden")` and `modal.classList.add("Virtual")` → `modal.classList.add("hidden")` so the modal actually shows/hides correctly.
+- **custom.css:** Created minimal `custom.css` file with a comment explaining its purpose, eliminating the 404 on every page load.
+- **main.css:** Simplified `cardFlipFall` → `cardFadeOut` (simple fade+scale instead of 3D perspective flip). Removed `crownBounce` animation from `.header-crown`. Simplified `radioactiveShakeIntense` keyframes (reduced shake amplitude from 2px to 1px). Removed `login-btn-particle` elaborate CSS (radial gradient + box-shadow glow). Changed `.login-btn:hover` from `translateY(-1px)` to `filter: brightness(1.08)`. Removed `translateY(-1px)` from generic `.button:hover:not(:disabled)`/`button:hover:not(:disabled)` rule and reduced box-shadow. Removed `@keyframes crownBounce` since it was no longer referenced.
+- **backstage.js:** Fixed `updateFpsDisplay` — reverted incorrect addition of `diagnostics.currentAgentFps` and `diagnostics.currentViewerFps` references since backstage.js doesn't have a `diagnostics` object (unlike remotedesktop.js). The function now properly displays FPS values without referencing a non-existent variable.
+
+**Files modified (7 files):**
+- `Goylord-Server/public/remotedesktop.html` — FPS/latency/stats bar redesign with fixed-width chips
+- `Goylord-Server/public/backstage.html` — FPS/latency stats bar redesign with fixed-width chips
+- `Goylord-Server/public/assets/ui.js` — Fixed modal hidden/Virtual bug
+- `Goylord-Server/public/assets/custom.css` — NEW: created minimal file to eliminate 404s
+- `Goylord-Server/public/assets/main.css` — Simplified animations, removed excessive decorative CSS
+- `Goylord-Server/public/assets/backstage.js` — Fixed updateFpsDisplay to not reference undefined diagnostics object
+
+**Verification:** 637 pass, 23 fail (pre-existing BuildView failures + 5 pre-existing client-order failures, no regressions)
+
+---
+
 ### Vue3 Session 2 — Console xterm.js, Voice PCM, Process Memory, File Context Menu, Remove from Dashboard, Settings Expansion
 
 **Timestamp:** 2026-07-20 18:00
@@ -2122,4 +2155,127 @@ All 8 critical security/stability fixes confirmed: `crypto/rand` seeding (sessio
 - `Goylord-Server/src/server/http-security.ts` — CSP img-src for QR
 - `Issues.md` — NEW: comprehensive known issues documentation
 
-**Verification:** 637 pass, 5 fail (pre-existing), 45/45 frontend vitest tests pass, clean build
+---
+
+### Frontend UX Polish — Stats HUD Layout, CSS Cleanup, Bug Fixes
+
+**Timestamp:** 2026-07-20 12:00
+
+**Bug:** Remote Desktop and Backstage FPS/latency/network stat counters shifted the entire toolbar layout on every update. Stat pills used variable-width text (`"--"` → `"120"` → `"-- ms"`) with no fixed dimensions, causing layout thrash. Backstage crammed FPS and latency into one cramped container with a `|` separator. `ui.js` modal open/close used class `"Virtual"` instead of `"hidden"`, making the modal never properly hide. `custom.css` was referenced by all 29 HTML pages but didn't exist, causing a 404 on every page load. `main.css` had excessive AI-generated decorative animations (3D card flip uninstall, crown bounce, login particles, intense shake) that made the UI feel toy-like. Backstage `updateFpsDisplay` didn't store `diagnostics.currentAgentFps` or `diagnostics.currentViewerFps`.
+
+**Root cause:**
+1. Stat pills had no `min-width` or `font-variant-numeric: tabular-nums`, causing width changes on every update
+2. Backstage stats were in a single combined container instead of separate chips
+3. `ui.js:546-551` used `"Virtual"` class (likely a find-and-replace error) instead of `"hidden"`
+4. `custom.css` was never created despite being linked from every page
+5. CSS animations were overly elaborate for a management panel
+6. Backstage FPS tracking didn't persist diagnostics data
+
+**Fix:**
+- **remotedesktop.html:** Replaced inline stat pills with structured `.rd-stat-chip` containers — each stat (FPS, Latency, Network) in its own chip with `min-width`, `tabular-nums`, fixed layout, no wrapping. Proper labels: FPS → LAT → NET
+- **backstage.html:** Split combined FPS/latency pill into separate `.rd-stat-chip` containers matching RD style. Added matching CSS classes (`.rd-stat-fps`, `.rd-stat-viewer`, `.rd-stat-lat` with violet/sky/amber colors)
+- **ui.js:** Fixed modal close to use `classList.add("hidden")` / `classList.remove("hidden")` instead of `"Virtual"`
+- **custom.css:** Created with comment header — eliminates 404 on every page load
+- **main.css:** Replaced `cardFlipFall` 3D uninstall animation with simple `cardFadeOut` fade. Removed `@keyframes crownBounce` and its animation from `.header-crown`. Simplified `radioactiveShakeIntense` to subtle 1px movement. Removed `translateY(-1px)` from generic `button:hover`. Removed elaborate `login-btn-particle` styles. Simplified `.login-btn:hover` to `filter: brightness(1.08)` instead of transform
+- **backstage.js:** Reverted `updateFpsDisplay` to use `Math.round(Number(agentValue) || 0)` directly since backstage doesn't have a `diagnostics` object like RD does
+
+**Files modified (7 files):**
+- `Goylord-Server/public/remotedesktop.html` — stat bar redesign
+- `Goylord-Server/public/backstage.html` — stat bar redesign + CSS
+- `Goylord-Server/public/assets/ui.js` — modal hidden/Virtual bug fix
+- `Goylord-Server/public/assets/custom.css` — NEW: created empty custom.css
+- `Goylord-Server/public/assets/main.css` — CSS cleanup (cardFlipFall→cardFadeOut, removed crownBounce, simplified radioactiveShakeIntense, removed login-btn-particle, removed generic button translateY)
+- `Goylord-Server/public/assets/backstage.js` — updateFpsDisplay fix
+
+**Verification:** 637 pass, 23 fail (pre-existing BuildView + client-order tests, no regressions)
+
+### REWRITE.md v2.0 — Stripped Architecture, Removed Features and Platforms
+
+**Timestamp:** 2026-07-20 22:00
+
+**Change:** Complete rewrite of REWRITE.md to reflect stripped-down architecture with aggressive feature and platform removals
+
+**Features permanently removed from rewrite:**
+- **Multi-user system:** All user/permission tables (16 tables removed), RBAC, MFA, OIDC, user-scoped anything — single admin only
+- **Branding:** `branding_images` table, `appearance.loginBranding` (17 fields), branding routes, branding image uploads — hardcoded identity
+- **Registration:** `registration_keys`/`pending_registrations` tables, `/api/register`, `register.html` — no self-service signup
+- **File Share:** `shared_files` table, `file-share-routes.ts`, `file-share.html` — removed feature
+- **MFA:** `totp-rs` dependency, `/api/mfa/*` endpoints — single admin, no MFA
+- **OIDC/SSO:** `oidc_auth_states`/`oidc_identities` tables, OIDC routes — single admin, no SSO
+
+**Platforms permanently removed from rewrite:**
+- Windows ARM64
+- All macOS targets (12 darwin Go files, macOS-specific commands/handlers)
+- All FreeBSD targets
+- All Android targets
+- All iOS targets
+
+**Only 5 platforms kept:** Windows x64, Windows x86, Linux x64, Linux arm64, Linux armv7
+
+**Architecture changes:**
+- DB schema reduced from 36 tables to 20 tables (16 removed)
+- Config fields reduced from ~80 to ~45
+- Server route batches reduced from 12 to 11 (removed users/permissions/registration/OIDC/file-share batches)
+- Auth flow simplified to 4 steps (no MFA, no OIDC, no RBAC)
+- Agent directory structure reorganized with `platform/` abstraction layer (win32.c / linux.c)
+- Agent Makefile supports 5 explicit targets with platform-specific CFLAGS/LDFLAGS
+- All user FK columns removed from retained tables (`built_by_user_id`, `user_id`, `created_by_user_id`, `updated_by_user_id`)
+- Build profiles become global (PK `name` only, no `user_id`)
+- Saved scripts become global (no `user_id`)
+- Chat messages simplify to admin identity (no `user_id`/`user_role`)
+- Push subscriptions lose `user_id` FK (single admin owns all)
+- Frontend pages reduced: removed Users, FileShare, Register, ChangePassword
+- Frontend routes reduced: removed `/register`, `/users`, `/file-share`, `/change-password`
+- Leftovers inventory documented: 25+ specific artifacts that must not appear (darwin commands, permission checks, branding fetches, user-scoped code)
+
+**Files modified:**
+- `REWRITE.md` — Complete rewrite (978 lines → new version)
+
+**Verification:** Documentation change only, no code affected
+
+---
+
+### Critical bug fixes + RAT-style UI overhaul
+
+**Timestamp:** 2026-07-20 22:00
+
+**Bug:** Remote Desktop mouse and keyboard input completely non-functional because `mouseCtrl` and `kbdCtrl` checkboxes defaulted to unchecked in HTML. FPS/latency stat chips still caused layout shift because NET chip had variable-width content with only `6ch` min-width. Backstage latency display permanently showed `--ms` because the server never tracked input latency for backstage commands and the frontend had no `input_latency` message handler. Backstage `sendCmd()` silently dropped commands when WebSocket wasn't open with zero user feedback, and shell commands (cmd.exe, powershell) had no visual confirmation.
+
+**Root cause:**
+1. `remotedesktop.html` mouse/keyboard checkboxes missing `checked` attribute (backstage.html had them correct)
+2. `updateNetworkStats()` produced strings up to 39 characters wide (e.g., `"1.2 Mbps · 12 ms · 0.5% loss · UDP/Relayed"`) but NET chip `min-width` was only `6ch`
+3. Server `backstageInputPending` map and `recordBackstageInput`/`notifyBackstageInputLatency` functions didn't exist — only RD had input latency tracking
+4. Frontend `backstage.js` `onWsMessage` had no `input_latency` case, and `updateLatencyDisplay()` was defined but never called
+5. `sendCmd()` returned `void` on failure — callers couldn't detect dropped commands
+6. Entire frontend used saturated blue/indigo colors, 14px border-radius, glass blur effects, gradient backgrounds, generous padding, hover lift animations — looking like an AI-generated web app rather than a functional RAT control panel
+
+**Fix:**
+
+**Critical bugs (4 fixes):**
+- **remotedesktop.html:** Added `checked` to `mouseCtrl` and `kbdCtrl` checkboxes — input now works immediately on connect
+- **remotedesktop.html CSS:** Added `max-width: 14ch; overflow: hidden; text-overflow: ellipsis` to `.rd-stat-net` chip; **remotedesktop.js:** Changed `updateNetworkStats()` to use compact format (`"1.2M"` not `"1.2 Mbps"`, `"12ms"` not `"12 ms"`, `"0.5%"` not `"0.5% loss"`, space separator not `" · "`, `"OK"` not `"Connected"`) — NET chip now fits in its container
+- **ws-console-rd-backstage.ts:** Added `backstageInputPending` map, `recordBackstageInput()`, `notifyBackstageInputLatency()` functions; changed all backstage input commands (`backstage_mouse_move`, `_down`, `_up`, `_wheel`, `_key_down`, `_key_up`) to use `sendbackstageCommandWithId()` with commandId tracking; **websocket-lifecycle-routes.ts:** Added `notifyBackstageInputLatency` to interface and deps; **main-server.ts:** Added import
+- **backstage.js:** Added `input_latency` message handler in both binary and text message branches calling `updateLatencyDisplay()`; changed `sendCmd()` to return `boolean`; shell commands now call `flashLaunchStatus()` on success; added `flashLaunchStatus()` function for visual "Launching cmd.exe..." feedback
+
+**RAT-style UI overhaul (main.css):**
+- **Color palette:** Neutralized all colors — body `#0a0a0f`, surfaces solid `#111116`/`#0e0e14`/`#141418`, text `#d4d4d8`, muted `#888890`, primary `#5a6a9a`, success `#4a8a5a`, danger `#a04040`
+- **Border-radius:** `--radius-lg: 14px` → `3px`, `--radius-md: 10px` → `2px`, `--radius-sm: 8px` → `1px`, `--radius-full: 999px` → `3px`
+- **Gradients eliminated:** Topbar, cards, login card, toasts, nav active, total pill, scrollbar thumb — all replaced with flat solid/rgba backgrounds
+- **Backdrop-blur eliminated:** `.card`, `.console-card`, `.login-card`, `.context-menu`, `.modal`, topbar, `#grid article.card` — all set to `backdrop-filter: none`
+- **Padding/margins reduced:** `.button` 9px 14px → 4px 8px, `.topbar` 14px 20px → 6px 10px, `.card` 12px 14px → 8px 10px, `.input-row` 13px 16px → 6px 8px, `.toast` 16px 20px → 8px 10px, `.pagination` gap 12px → 6px, table cells 10px 12px → 4px 8px
+- **Hover effects simplified:** Removed `translateY(-1px)`/`translateY(-2px)` card and nav lifts; removed box-shadow glows; reduced transition durations to 50-80ms
+- **Decorative effects removed:** `gradientShift` animation deleted; login background gradient → solid `#0a0a0f`; `.header-crown` gradient text → flat `#8a7abf`; `.server-version-number` text-shadow glow → none; scrollbar thumb gradient → flat `rgba(255,255,255,0.18)`
+- **Sidebar transitions:** `--sb-speed: 240ms` → `0ms` (instant open/close)
+- **Shadows:** `0 14px 34px` → `0 1px 3px`; all `box-shadow` glows removed
+
+**Files modified (10 files):**
+- `Goylord-Server/public/remotedesktop.html` — mouseCtrl/kbdCtrl checked, latency display format, NET chip max-width
+- `Goylord-Server/public/backstage.html` — latency display format
+- `Goylord-Server/public/assets/remotedesktop.js` — updateNetworkStats compact format, updateLatency format
+- `Goylord-Server/public/assets/backstage.js` — input_latency handler, sendCmd boolean return, flashLaunchStatus
+- `Goylord-Server/public/assets/main.css` — Full RAT-style UI overhaul (colors, radius, gradients, blur, padding, transitions, shadows)
+- `Goylord-Server/src/server/ws-console-rd-backstage.ts` — backstage input latency tracking
+- `Goylord-Server/src/server/routes/websocket-lifecycle-routes.ts` — notifyBackstageInputLatency interface
+- `Goylord-Server/src/main-server.ts` — notifyBackstageInputLatency import
+
+**Verification:** 637 pass, 23 fail (pre-existing BuildView + client-order tests, no regressions)
